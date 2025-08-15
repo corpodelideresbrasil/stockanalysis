@@ -1,32 +1,10 @@
 /**
  * @OnlyCurrentDoc
  *
- * O script acima concede ao script acesso apenas à planilha atual.
- * É uma boa prática de segurança.
+ * Para executar, abra o editor de scripts (Extensões > Apps Script).
+ * Na barra superior, selecione a função que deseja executar (ex: executarAtualizacaoCompleta) e clique em "Executar".
+ * Na primeira vez, você precisará autorizar as permissões que o script solicita.
  */
-
-// =================================================================
-// =================== FUNÇÃO DE CRIAÇÃO DO MENU ===================
-// =================================================================
-
-/**
- * Cria o menu personalizado na planilha.
- * Deve ser executada manualmente uma vez pelo editor de script para garantir as permissões corretas.
- * (No editor: Executar > Executar função > createCustomMenu)
- */
-function createCustomMenu() {
-  SpreadsheetApp.getUi()
-      .createMenu('🤖 Análise de Ações')
-      .addItem('Executar Análise Completa', 'executarAtualizacaoCompleta')
-      .addSeparator()
-      .addItem('Apenas Gerar Recomendações', 'gerarParametrosERecomendacoes')
-      .addSeparator()
-      .addItem('Limpar Dados Antigos', 'limparDadosAntigos')
-      .addItem('Resetar Progresso de Lotes', 'resetarProgresso')
-      .addToUi();
-  SpreadsheetApp.getActiveSpreadsheet().toast("Menu '🤖 Análise de Ações' criado com sucesso!");
-}
-
 
 // =================================================================
 // =================== FUNÇÕES PRINCIPAIS ==========================
