@@ -31,6 +31,6 @@ CREATE TABLE signals (
 );
 
 -- Create a default admin user (replace with a secure creation process later)
--- For development purposes only.
--- Make sure to change the password in a real environment.
-INSERT INTO users (email, password_hash, is_admin, has_active_subscription) VALUES ('admin@example.com', 'supersecret-hashed-password', TRUE, TRUE);
+-- Admin user should be created manually for security.
+-- 1. Register a new user via the application.
+-- 2. Connect to the database and run: UPDATE users SET is_admin = TRUE WHERE email = 'your-email@example.com';
