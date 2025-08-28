@@ -559,8 +559,8 @@ function filterAndFormatRecommendations(allRecommendations) {
     finalRecs = finalRecs.slice(0, CONFIG.MAX_RECOMMENDATIONS_TO_SHOW);
   }
 
-  // 4. Sort the final list by ticker for consistent display
-  finalRecs.sort((a, b) => a.ticker.localeCompare(b.ticker));
+  // 4. Sort the final list by ticker for consistent display (REMOVED to keep Profit Factor sorting)
+  // finalRecs.sort((a, b) => a.ticker.localeCompare(b.ticker));
 
   // 5. Format the elite list into a 2D array for the sheet
   return finalRecs.map(rec => [
