@@ -274,91 +274,89 @@ function updateDailyData() {
 // =================================================================
 
 /**
- * Runs a multi-layered optimization to find the best strategy for a given ticker and data period.
+ * Runs a multi-layered optimization to find the best strategies for a given ticker and data period.
+ * It finds the best strategy by Profit Factor and the best strategy by Accuracy for both BUY and SELL directions.
  * @param {string} ticker The ticker symbol.
  * @param {Array<Object>} priceData The price data for the ticker.
  * @param {string} analysisType A string identifier for the analysis period (e.g., "Análise Completa").
- * @returns {Array<Object>} An array of recommendation objects for the best found strategies (buy and/or sell).
+ * @returns {Array<Object>} An array of recommendation objects for all unique best found strategies.
  */
 function runAnalysisForPeriod(ticker, priceData, analysisType) {
-  let bestBuyStrategy = null;
-  let bestSellStrategy = null;
+  const bests = {
+    'BUY': { byProfitFactor: null, byAccuracy: null },
+    'SELL': { byProfitFactor: null, byAccuracy: null }
+  };
 
   if (priceData.length >= 2) {
-    // --- Find Best BUY Strategy ---
-    for (const stop of CONFIG.STOP_LOSS_OPTIONS_PERCENT) {
-      for (const ratio of CONFIG.REWARD_RISK_RATIO_OPTIONS) {
-        const target = stop * ratio;
-        for (let p = CONFIG.PERCENT_MIN; p <= CONFIG.PERCENT_MAX + 1e-9; p += CONFIG.PERCENT_STEP) {
-          const metrics = calculateBacktestMetrics(priceData, p, 'BUY', stop, target);
-          const isValid = metrics.trades >= CONFIG.MIN_TRADES &&
-                          metrics.accuracy >= CONFIG.MIN_ACCURACY_PERCENT &&
-                          metrics.ciLower >= CONFIG.MIN_WILSON_LOWER_BOUND &&
-                          metrics.avgGain >= CONFIG.MIN_AVG_GAIN_PERCENT &&
-                          metrics.maxDD <= CONFIG.MAX_DRAWDOWN_PERCENT;
-          if (isValid) {
-            if (!bestBuyStrategy || metrics.profitFactor > bestBuyStrategy.profitFactor) {
-              bestBuyStrategy = metrics;
-            }
-          }
-        }
-      }
-    }
+    for (const direction of ['BUY', 'SELL']) {
+      for (const stop of CONFIG.STOP_LOSS_OPTIONS_PERCENT) {
+        for (const ratio of CONFIG.REWARD_RISK_RATIO_OPTIONS) {
+          const target = stop * ratio;
+          for (let p = CONFIG.PERCENT_MIN; p <= CONFIG.PERCENT_MAX + 1e-9; p += CONFIG.PERCENT_STEP) {
+            const metrics = calculateBacktestMetrics(priceData, p, direction, stop, target);
+            const isValid = metrics.trades >= CONFIG.MIN_TRADES &&
+                            metrics.accuracy >= CONFIG.MIN_ACCURACY_PERCENT &&
+                            metrics.ciLower >= CONFIG.MIN_WILSON_LOWER_BOUND &&
+                            metrics.avgGain >= CONFIG.MIN_AVG_GAIN_PERCENT &&
+                            metrics.maxDD <= CONFIG.MAX_DRAWDOWN_PERCENT;
 
-    // --- Find Best SELL Strategy ---
-    for (const stop of CONFIG.STOP_LOSS_OPTIONS_PERCENT) {
-      for (const ratio of CONFIG.REWARD_RISK_RATIO_OPTIONS) {
-        const target = stop * ratio;
-        for (let p = CONFIG.PERCENT_MIN; p <= CONFIG.PERCENT_MAX + 1e-9; p += CONFIG.PERCENT_STEP) {
-          const metrics = calculateBacktestMetrics(priceData, p, 'SELL', stop, target);
-          const isValid = metrics.trades >= CONFIG.MIN_TRADES &&
-                          metrics.accuracy >= CONFIG.MIN_ACCURACY_PERCENT &&
-                          metrics.ciLower >= CONFIG.MIN_WILSON_LOWER_BOUND &&
-                          metrics.avgGain >= CONFIG.MIN_AVG_GAIN_PERCENT &&
-                          metrics.maxDD <= CONFIG.MAX_DRAWDOWN_PERCENT;
-          if (isValid) {
-            if (!bestSellStrategy || metrics.profitFactor > bestSellStrategy.profitFactor) {
-              bestSellStrategy = metrics;
+            if (isValid) {
+              // Check for best by Profit Factor
+              if (!bests[direction].byProfitFactor || metrics.profitFactor > bests[direction].byProfitFactor.profitFactor) {
+                bests[direction].byProfitFactor = metrics;
+              }
+              // Check for best by Accuracy
+              if (!bests[direction].byAccuracy || metrics.accuracy > bests[direction].byAccuracy.accuracy) {
+                bests[direction].byAccuracy = metrics;
+              }
             }
           }
         }
       }
     }
   }
+
+  const strategies = new Map();
+
+  // Helper to add a strategy to the map, avoiding duplicates and tagging how it was optimized
+  const addStrategy = (strategy, optimizedBy, direction) => {
+    if (!strategy) return;
+    const key = `${direction}-${strategy.p}-${strategy.stopLossPercent}-${strategy.targetGainPercent}`;
+    if (strategies.has(key)) {
+      strategies.get(key).optimizedBy += ` & ${optimizedBy}`;
+    } else {
+      strategies.set(key, { ...strategy, optimizedBy: optimizedBy, direction: direction });
+    }
+  };
+
+  addStrategy(bests.BUY.byProfitFactor, 'Profit Factor', 'COMPRA');
+  addStrategy(bests.BUY.byAccuracy, 'Accuracy', 'COMPRA');
+  addStrategy(bests.SELL.byProfitFactor, 'Profit Factor', 'VENDA');
+  addStrategy(bests.SELL.byAccuracy, 'Accuracy', 'VENDA');
 
   const recommendations = [];
   const cleanedTicker = cleanTickerSymbol(ticker);
+  const previousClose = priceData.length >= 2 ? priceData[priceData.length - 1].close : 0;
 
-  if (bestBuyStrategy) {
-    const previousClose = priceData[priceData.length - 1].close;
-    const entryPrice = previousClose * (1 - bestBuyStrategy.p / 100);
+  strategies.forEach(strat => {
+    const entryPrice = strat.direction === 'COMPRA'
+      ? previousClose * (1 - strat.p / 100)
+      : previousClose * (1 + strat.p / 100);
+
     recommendations.push({
       ticker: cleanedTicker,
-      direction: 'COMPRA',
+      direction: strat.direction,
+      optimizedBy: strat.optimizedBy,
       entry: entryPrice,
-      targetGainPercent: bestBuyStrategy.targetGainPercent,
-      stopLossPercent: bestBuyStrategy.stopLossPercent,
-      profitFactor: bestBuyStrategy.profitFactor,
+      targetGainPercent: strat.targetGainPercent,
+      stopLossPercent: strat.stopLossPercent,
+      profitFactor: strat.profitFactor,
+      accuracy: strat.accuracy,
+      maxDD: strat.maxDD,
       analysisType: analysisType,
-      // Pass all metrics for potential future use or filtering
-      fullMetrics: bestBuyStrategy
+      fullMetrics: strat
     });
-  }
-
-  if (bestSellStrategy) {
-    const previousClose = priceData[priceData.length - 1].close;
-    const entryPrice = previousClose * (1 + bestSellStrategy.p / 100);
-    recommendations.push({
-      ticker: cleanedTicker,
-      direction: 'VENDA',
-      entry: entryPrice,
-      targetGainPercent: bestSellStrategy.targetGainPercent,
-      stopLossPercent: bestSellStrategy.stopLossPercent,
-      profitFactor: bestSellStrategy.profitFactor,
-      analysisType: analysisType,
-      fullMetrics: bestSellStrategy
-    });
-  }
+  });
 
   return recommendations;
 }
@@ -541,35 +539,71 @@ function calculateBacktestMetrics(priceData, p, direction, stopLossPercent, targ
  * @returns {Array<Array>} A final, sorted 2D array ready for the spreadsheet.
  */
 function filterAndFormatRecommendations(allRecommendations) {
-  // 1. Filter to get the best recommendation for each ticker/direction based on Profit Factor
-  const bestRecsPerTicker = {};
+  // 1. Filter to get the best recommendation for each unique strategy type (e.g., PETR4-COMPRA-Accuracy)
+  // This chooses between the "Full Analysis" and "3-Month" versions of a strategy.
+  const bestRecs = {};
   for (const rec of allRecommendations) {
-    const key = `${rec.ticker}_${rec.direction}`;
-    if (!bestRecsPerTicker[key] || rec.profitFactor > bestRecsPerTicker[key].profitFactor) {
-      bestRecsPerTicker[key] = rec;
+    const key = `${rec.ticker}_${rec.direction}_${rec.optimizedBy}`;
+    const metricToCompare = rec.optimizedBy.includes('Profit Factor') ? 'profitFactor' : 'accuracy';
+
+    if (!bestRecs[key] || rec[metricToCompare] > bestRecs[key][metricToCompare]) {
+      bestRecs[key] = rec;
     }
   }
-  let finalRecs = Object.values(bestRecsPerTicker);
+  const uniqueBestRecs = Object.values(bestRecs);
 
-  // 2. Rank all the unique best recommendations by Profit Factor, descending
-  finalRecs.sort((a, b) => b.profitFactor - a.profitFactor);
+  // 2. Separate recommendations by optimization type
+  const accuracyRecs = uniqueBestRecs.filter(r => r.optimizedBy.includes('Accuracy'));
+  const profitFactorRecs = uniqueBestRecs.filter(r => r.optimizedBy.includes('Profit Factor'));
 
-  // 3. Limit the list to the top N recommendations
-  if (finalRecs.length > CONFIG.MAX_RECOMMENDATIONS_TO_SHOW) {
-    finalRecs = finalRecs.slice(0, CONFIG.MAX_RECOMMENDATIONS_TO_SHOW);
+  // 3. Sort each list independently and apply the limit
+  accuracyRecs.sort((a, b) => b.accuracy - a.accuracy);
+  profitFactorRecs.sort((a, b) => b.profitFactor - a.profitFactor);
+
+  const topAccuracy = accuracyRecs.slice(0, CONFIG.MAX_RECOMMENDATIONS_TO_SHOW);
+  const topProfitFactor = profitFactorRecs.slice(0, CONFIG.MAX_RECOMMENDATIONS_TO_SHOW);
+
+  // 4. Combine the limited lists and remove duplicates.
+  // A strategy might appear in both lists if it was optimal for both metrics.
+  const combinedRecs = [...topAccuracy, ...topProfitFactor];
+  const finalRecsMap = new Map();
+  for (const rec of combinedRecs) {
+    // A key based on the core strategy parameters ensures uniqueness.
+    // Note: p is stored in fullMetrics, not the top-level rec object.
+    const strategyKey = `${rec.ticker}_${rec.direction}_${rec.fullMetrics.p}_${rec.stopLossPercent}_${rec.targetGainPercent}`;
+    if (!finalRecsMap.has(strategyKey)) {
+      finalRecsMap.set(strategyKey, rec);
+    }
   }
+  const finalRecs = Array.from(finalRecsMap.values());
 
-  // 4. Sort the final list by ticker for consistent display (REMOVED to keep Profit Factor sorting)
-  // finalRecs.sort((a, b) => a.ticker.localeCompare(b.ticker));
 
-  // 5. Format the elite list into a 2D array for the sheet
+  // 5. Sort the final de-duplicated list for display: by Optimization method, then by the relevant metric
+  finalRecs.sort((a, b) => {
+    // Group by the 'Optimized_By' field first. 'Accuracy' will come before 'Profit Factor'.
+    // We achieve this by sorting alphabetically, as "Accuracy" comes before "Profit Factor".
+    if (a.optimizedBy < b.optimizedBy) return -1;
+    if (a.optimizedBy > b.optimizedBy) return 1;
+
+    // Within each group, sort by the relevant metric in descending order.
+    if (a.optimizedBy.includes('Accuracy')) {
+      return b.accuracy - a.accuracy;
+    } else { // Assumes 'Profit Factor'
+      return b.profitFactor - a.profitFactor;
+    }
+  });
+
+  // 6. Format into a 2D array for the sheet with all the detailed columns
   return finalRecs.map(rec => [
     rec.ticker,
     rec.direction,
+    rec.optimizedBy,
     rec.entry,
     rec.targetGainPercent / 100,
     rec.stopLossPercent / 100,
-    rec.fullMetrics.maxDD / 100
+    rec.profitFactor,
+    rec.accuracy / 100,
+    rec.maxDD / 100
   ]);
 }
 
@@ -581,7 +615,7 @@ function filterAndFormatRecommendations(allRecommendations) {
 function writeRecommendationsToSheet(ss, recommendations) {
   const recommendationsSheet = getOrCreateSheet(ss, CONFIG.RECOMMENDATIONS_SHEET);
   recommendationsSheet.clear();
-  const header = ["Ticker", "Direction", "Entrada", "Target_Gain(%)", "Stop_Loss(%)", "Max_Drawdown(%)"];
+  const header = ["Ticker", "Direction", "Optimized_By", "Entrada", "Target_Gain(%)", "Stop_Loss(%)", "Profit_Factor", "Accuracy(%)", "Max_Drawdown(%)"];
   recommendationsSheet.appendRow(header);
 
   if (recommendations.length > 0) {
@@ -589,8 +623,10 @@ function writeRecommendationsToSheet(ss, recommendations) {
     range.setValues(recommendations);
 
     // --- Apply Formatting ---
-    recommendationsSheet.getRange('C2:C').setNumberFormat("R$ #,##0.00"); // Entry
-    recommendationsSheet.getRange('D2:F').setNumberFormat("0.00%");      // Target, Stop, and Drawdown
+    recommendationsSheet.getRange('D2:D').setNumberFormat("R$ #,##0.00");      // Entry
+    recommendationsSheet.getRange('E2:F').setNumberFormat("0.00%");          // Target and Stop
+    recommendationsSheet.getRange('G2:G').setNumberFormat("#,##0.00");       // Profit Factor
+    recommendationsSheet.getRange('H2:I').setNumberFormat("0.00%");          // Accuracy and Drawdown
 
     for (let i = 0; i < recommendations.length; i++) {
       const direction = recommendations[i][1]; // Column B
