@@ -25,7 +25,8 @@ const CONFIG = {
   HARD_START_DATE: new Date(2025, 0, 1), // Absolute earliest date to fetch data from
 
   // --- Backtesting Strategy Parameters ---
-  PERCENT_MIN: 1.0,       // Minimum percentage to test for entry point
+  DYNAMIC_ENTRY_PERCENTILE: 25, // Percentile for dynamic entry calculation (e.g., 25th percentile of historical moves)
+  PERCENT_MIN: 1.0,       // Minimum percentage to test for entry point (fallback if dynamic is off)
   PERCENT_MAX: 4.0,       // Maximum percentage
   PERCENT_STEP: 0.1,      // Step to increment percentage in tests
   STOP_LOSS_OPTIONS_PERCENT: [1.5, 2.0, 2.5], // Stop loss options to test
@@ -288,11 +289,16 @@ function runAnalysisForPeriod(ticker, priceData, analysisType) {
   };
 
   if (priceData.length >= 2) {
+    const dynamicParams = calculateDynamicEntryParameters(priceData);
+
     for (const direction of ['BUY', 'SELL']) {
+      const startPercent = direction === 'BUY' ? dynamicParams.minBuyP : dynamicParams.minSellP;
+      const minP = Math.max(0.1, startPercent); // Use dynamic value but ensure a floor of 0.1%
+
       for (const stop of CONFIG.STOP_LOSS_OPTIONS_PERCENT) {
         for (const ratio of CONFIG.REWARD_RISK_RATIO_OPTIONS) {
           const target = stop * ratio;
-          for (let p = CONFIG.PERCENT_MIN; p <= CONFIG.PERCENT_MAX + 1e-9; p += CONFIG.PERCENT_STEP) {
+          for (let p = minP; p <= CONFIG.PERCENT_MAX + 1e-9; p += CONFIG.PERCENT_STEP) {
             const metrics = calculateBacktestMetrics(priceData, p, direction, stop, target);
             const isValid = metrics.trades >= CONFIG.MIN_TRADES &&
                             metrics.accuracy >= CONFIG.MIN_ACCURACY_PERCENT &&
@@ -698,3 +704,68 @@ function getOrCreateSheet(ss, name) { return ss.getSheetByName(name) || ss.inser
  * @returns {number} The lower bound of the confidence interval.
  */
 function calculateWilsonScoreLowerBound(wins, n, z = 1.96) { if (!n) return 0; const p = wins / n; const z2 = z * z; const denominator = 1 + z2 / n; const center = p + z2 / (2 * n); const margin = z * Math.sqrt((p * (1 - p) + z2 / (4 * n)) / n); return Math.max(0, (center - margin) / denominator); }
+
+
+/**
+ * Calculates the dynamic minimum entry percentages based on historical price volatility.
+ * @param {Array<Object>} priceData The historical price data for a ticker.
+ * @returns {{minBuyP: number, minSellP: number}} An object containing the calculated min percentages.
+ */
+function calculateDynamicEntryParameters(priceData) {
+  const dipPercents = [];
+  const rallyPercents = [];
+
+  for (let i = 1; i < priceData.length; i++) {
+    const prevClose = priceData[i - 1].close;
+    const { high, low } = priceData[i];
+
+    if (isFinite(prevClose) && prevClose > 0 && isFinite(high) && isFinite(low)) {
+      const dip = (prevClose - low) / prevClose * 100;
+      const rally = (high - prevClose) / prevClose * 100;
+
+      if (dip > 0) {
+        dipPercents.push(dip);
+      }
+      if (rally > 0) {
+        rallyPercents.push(rally);
+      }
+    }
+  }
+
+  const minBuyP = calculatePercentile(dipPercents, CONFIG.DYNAMIC_ENTRY_PERCENTILE);
+  const minSellP = calculatePercentile(rallyPercents, CONFIG.DYNAMIC_ENTRY_PERCENTILE);
+
+  return { minBuyP, minSellP };
+}
+
+
+/**
+ * Calculates the value at a given percentile in a sorted numeric array.
+ * @param {Array<number>} data An array of numbers.
+ * @param {number} percentile The percentile to calculate (e.g., 25 for the 25th percentile).
+ * @returns {number} The value at the specified percentile. Returns 0 if data is empty.
+ */
+function calculatePercentile(data, percentile) {
+  if (!data || data.length === 0) {
+    return 0;
+  }
+  // Sort the data in ascending order
+  data.sort((a, b) => a - b);
+
+  // Calculate the index
+  const index = (percentile / 100) * (data.length - 1);
+
+  if (index % 1 === 0) {
+    // If the index is an integer, return the value at that index
+    return data[index];
+  } else {
+    // If the index is a decimal, interpolate between the two closest values
+    const lowerIndex = Math.floor(index);
+    const upperIndex = Math.ceil(index);
+    const weight = index - lowerIndex;
+
+    if (upperIndex >= data.length) return data[lowerIndex]; // Should not happen if percentile <= 100
+
+    return data[lowerIndex] * (1 - weight) + data[upperIndex] * weight;
+  }
+}
