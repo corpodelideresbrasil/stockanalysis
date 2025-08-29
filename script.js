@@ -26,11 +26,11 @@ const CONFIG = {
 
   // --- Backtesting Strategy Parameters ---
   DYNAMIC_ENTRY_PERCENTILE: 25, // Percentile for dynamic entry calculation (e.g., 25th percentile of historical moves)
-  PERCENT_MIN: 1.0,       // Minimum percentage to test for entry point (fallback if dynamic is off)
-  PERCENT_MAX: 4.0,       // Maximum percentage
+  PERCENT_MAX: 4.0,       // Maximum percentage to test for an entry point. Acts as a ceiling for the dynamic search.
   PERCENT_STEP: 0.1,      // Step to increment percentage in tests
-  STOP_LOSS_OPTIONS_PERCENT: [1.5, 2.0, 2.5], // Stop loss options to test
-  REWARD_RISK_RATIO_OPTIONS: [1.5, 2.0, 2.5], // Reward/Risk ratio options to test
+  ATR_PERIOD: 14,         // The period for calculating the Average True Range (ATR).
+  STOP_LOSS_ATR_MULTIPLIERS: [1.2, 1.6, 2.0, 2.5], // Stop loss options to test, as multiples of ATR.
+  REWARD_RISK_RATIO_OPTIONS: [1.2, 1.6, 2.0, 2.5], // Reward/Risk ratio options to test
 
   // --- Recommendation Filtering Criteria ---
   MIN_ACCURACY_PERCENT: 70, // Minimum win rate for a strategy to be considered
@@ -288,18 +288,18 @@ function runAnalysisForPeriod(ticker, priceData, analysisType) {
     'SELL': { byProfitFactor: null, byAccuracy: null }
   };
 
-  if (priceData.length >= 2) {
+  if (priceData.length >= CONFIG.ATR_PERIOD) {
     const dynamicParams = calculateDynamicEntryParameters(priceData);
+    const atrData = calculateATR(priceData, CONFIG.ATR_PERIOD);
 
     for (const direction of ['BUY', 'SELL']) {
       const startPercent = direction === 'BUY' ? dynamicParams.minBuyP : dynamicParams.minSellP;
       const minP = Math.max(0.1, startPercent); // Use dynamic value but ensure a floor of 0.1%
 
-      for (const stop of CONFIG.STOP_LOSS_OPTIONS_PERCENT) {
+      for (const stopMultiplier of CONFIG.STOP_LOSS_ATR_MULTIPLIERS) {
         for (const ratio of CONFIG.REWARD_RISK_RATIO_OPTIONS) {
-          const target = stop * ratio;
           for (let p = minP; p <= CONFIG.PERCENT_MAX + 1e-9; p += CONFIG.PERCENT_STEP) {
-            const metrics = calculateBacktestMetrics(priceData, p, direction, stop, target);
+            const metrics = calculateBacktestMetrics(priceData, p, direction, atrData, stopMultiplier, ratio);
             const isValid = metrics.trades >= CONFIG.MIN_TRADES &&
                             metrics.accuracy >= CONFIG.MIN_ACCURACY_PERCENT &&
                             metrics.ciLower >= CONFIG.MIN_WILSON_LOWER_BOUND &&
@@ -327,9 +327,13 @@ function runAnalysisForPeriod(ticker, priceData, analysisType) {
   // Helper to add a strategy to the map, avoiding duplicates and tagging how it was optimized
   const addStrategy = (strategy, optimizedBy, direction) => {
     if (!strategy) return;
-    const key = `${direction}-${strategy.p}-${strategy.stopLossPercent}-${strategy.targetGainPercent}`;
+    const key = `${direction}-${strategy.p}-${strategy.stopLossAtrMultiplier}-${strategy.rewardRiskRatio}`;
     if (strategies.has(key)) {
-      strategies.get(key).optimizedBy += ` & ${optimizedBy}`;
+      // If the same strategy is optimal for both, combine the 'optimizedBy' tag
+      const existing = strategies.get(key);
+      if (!existing.optimizedBy.includes(optimizedBy)) {
+        existing.optimizedBy += ` & ${optimizedBy}`;
+      }
     } else {
       strategies.set(key, { ...strategy, optimizedBy: optimizedBy, direction: direction });
     }
@@ -343,6 +347,7 @@ function runAnalysisForPeriod(ticker, priceData, analysisType) {
   const recommendations = [];
   const cleanedTicker = cleanTickerSymbol(ticker);
   const previousClose = priceData.length >= 2 ? priceData[priceData.length - 1].close : 0;
+  const latestAtr = atrData[atrData.length - 1];
 
   strategies.forEach(strat => {
     const entryPrice = strat.direction === 'COMPRA'
@@ -354,8 +359,11 @@ function runAnalysisForPeriod(ticker, priceData, analysisType) {
       direction: strat.direction,
       optimizedBy: strat.optimizedBy,
       entry: entryPrice,
-      targetGainPercent: strat.targetGainPercent,
-      stopLossPercent: strat.stopLossPercent,
+      stopLossAtrMultiplier: strat.stopLossAtrMultiplier,
+      rewardRiskRatio: strat.rewardRiskRatio,
+      // Add human-readable stop/target based on latest data
+      stopValue: latestAtr * strat.stopLossAtrMultiplier,
+      targetValue: latestAtr * strat.stopLossAtrMultiplier * strat.rewardRiskRatio,
       profitFactor: strat.profitFactor,
       accuracy: strat.accuracy,
       maxDD: strat.maxDD,
@@ -452,37 +460,47 @@ function generateParametersAndRecommendations() {
 
 /**
  * Calculates backtesting metrics for a given dataset and a specific OCO (One-Cancels-the-Other) strategy.
+ * This version uses a dynamic ATR-based stop loss and target.
  * @param {Array<Object>} priceData Array of price objects {close, high, low}.
  * @param {number} p The percentage trigger for the entry.
  * @param {string} direction 'BUY' or 'SELL'.
- * @param {number} stopLossPercent The stop loss percentage for the strategy.
- * @param {number} targetGainPercent The target gain percentage for the strategy.
- * @returns {Object} An object containing all calculated metrics for the OCO strategy.
+ * @param {Array<number|null>} atrData The array of ATR values for the dataset.
+ * @param {number} stopLossAtrMultiplier The multiplier for the ATR to set the stop loss.
+ * @param {number} rewardRiskRatio The reward/risk ratio for the strategy.
+ * @returns {Object} An object containing all calculated metrics for the strategy.
  */
-function calculateBacktestMetrics(priceData, p, direction, stopLossPercent, targetGainPercent) {
+function calculateBacktestMetrics(priceData, p, direction, atrData, stopLossAtrMultiplier, rewardRiskRatio) {
   let trades = 0, wins = 0, sumSignedReturns = 0, totalGains = 0, totalLosses = 0;
   let cumulativeReturn = 0, peak = 0, maxDrawdown = 0;
 
   for (let i = 1; i < priceData.length; i++) {
     const previousClose = priceData[i - 1].close;
     const { high, low, close } = priceData[i];
-    if (!isFinite(previousClose) || previousClose === 0) continue;
+    const atrValue = atrData[i - 1]; // Use yesterday's ATR for today's trade setup
+
+    if (!isFinite(previousClose) || previousClose === 0 || !atrValue || atrValue <= 0) {
+      continue;
+    }
 
     let entryPrice = 0;
     let returnPct = 0;
     let tradeOccurred = false;
 
+    // Define stop and target amounts based on ATR
+    const stopAmount = atrValue * stopLossAtrMultiplier;
+    const targetAmount = stopAmount * rewardRiskRatio;
+
     if (direction === 'BUY') {
       entryPrice = previousClose * (1 - p / 100);
       if (low <= entryPrice && entryPrice > 0) {
         tradeOccurred = true;
-        const stopPrice = entryPrice * (1 - stopLossPercent / 100);
-        const targetPrice = entryPrice * (1 + targetGainPercent / 100);
+        const stopPrice = entryPrice - stopAmount;
+        const targetPrice = entryPrice + targetAmount;
 
         if (low <= stopPrice) {
-          returnPct = -stopLossPercent; // Stopped out
+          returnPct = (-stopAmount / entryPrice) * 100; // Stopped out
         } else if (high >= targetPrice) {
-          returnPct = targetGainPercent; // Target hit
+          returnPct = (targetAmount / entryPrice) * 100; // Target hit
         } else {
           returnPct = ((close - entryPrice) / entryPrice) * 100; // Exit at close
         }
@@ -491,13 +509,13 @@ function calculateBacktestMetrics(priceData, p, direction, stopLossPercent, targ
       entryPrice = previousClose * (1 + p / 100);
       if (high >= entryPrice && entryPrice > 0) {
         tradeOccurred = true;
-        const stopPrice = entryPrice * (1 + stopLossPercent / 100);
-        const targetPrice = entryPrice * (1 - targetGainPercent / 100);
+        const stopPrice = entryPrice + stopAmount;
+        const targetPrice = entryPrice - targetAmount;
 
         if (high >= stopPrice) {
-          returnPct = -stopLossPercent; // Stopped out
+          returnPct = (-stopAmount / entryPrice) * 100; // Stopped out
         } else if (low <= targetPrice) {
-          returnPct = targetGainPercent; // Target hit
+          returnPct = (targetAmount / entryPrice) * 100; // Target hit
         } else {
           returnPct = ((entryPrice - close) / entryPrice) * 100; // Exit at close
         }
@@ -534,7 +552,7 @@ function calculateBacktestMetrics(priceData, p, direction, stopLossPercent, targ
 
   return {
     accuracy, trades, avgGain, ciLower, avgWin, avgLoss, maxDD: maxDrawdown, profitFactor,
-    p, stopLossPercent, targetGainPercent // Pass through the params for easy tracking
+    p, stopLossAtrMultiplier, rewardRiskRatio // Pass through the params for easy tracking
   };
 }
 
@@ -575,8 +593,7 @@ function filterAndFormatRecommendations(allRecommendations) {
   const finalRecsMap = new Map();
   for (const rec of combinedRecs) {
     // A key based on the core strategy parameters ensures uniqueness.
-    // Note: p is stored in fullMetrics, not the top-level rec object.
-    const strategyKey = `${rec.ticker}_${rec.direction}_${rec.fullMetrics.p}_${rec.stopLossPercent}_${rec.targetGainPercent}`;
+    const strategyKey = `${rec.ticker}_${rec.direction}_${rec.fullMetrics.p}_${rec.fullMetrics.stopLossAtrMultiplier}_${rec.fullMetrics.rewardRiskRatio}`;
     if (!finalRecsMap.has(strategyKey)) {
       finalRecsMap.set(strategyKey, rec);
     }
@@ -605,8 +622,10 @@ function filterAndFormatRecommendations(allRecommendations) {
     rec.direction,
     rec.optimizedBy,
     rec.entry,
-    rec.targetGainPercent / 100,
-    rec.stopLossPercent / 100,
+    rec.stopValue, // Human-readable stop loss value for today
+    rec.targetValue, // Human-readable target gain value for today
+    rec.stopLossAtrMultiplier,
+    rec.rewardRiskRatio,
     rec.profitFactor,
     rec.accuracy / 100,
     rec.maxDD / 100
@@ -621,7 +640,7 @@ function filterAndFormatRecommendations(allRecommendations) {
 function writeRecommendationsToSheet(ss, recommendations) {
   const recommendationsSheet = getOrCreateSheet(ss, CONFIG.RECOMMENDATIONS_SHEET);
   recommendationsSheet.clear();
-  const header = ["Ticker", "Direction", "Optimized_By", "Entrada", "Target_Gain(%)", "Stop_Loss(%)", "Profit_Factor", "Accuracy(%)", "Max_Drawdown(%)"];
+  const header = ["Ticker", "Direction", "Optimized_By", "Entrada", "Stop_Value", "Target_Value", "Stop_ATR_x", "RR_Ratio", "Profit_Factor", "Accuracy(%)", "Max_Drawdown(%)"];
   recommendationsSheet.appendRow(header);
 
   if (recommendations.length > 0) {
@@ -629,10 +648,10 @@ function writeRecommendationsToSheet(ss, recommendations) {
     range.setValues(recommendations);
 
     // --- Apply Formatting ---
-    recommendationsSheet.getRange('D2:D').setNumberFormat("R$ #,##0.00");      // Entry
-    recommendationsSheet.getRange('E2:F').setNumberFormat("0.00%");          // Target and Stop
-    recommendationsSheet.getRange('G2:G').setNumberFormat("#,##0.00");       // Profit Factor
-    recommendationsSheet.getRange('H2:I').setNumberFormat("0.00%");          // Accuracy and Drawdown
+    recommendationsSheet.getRange('D2:F').setNumberFormat("R$ #,##0.00");      // Entry, Stop_Value, Target_Value
+    recommendationsSheet.getRange('G2:H').setNumberFormat("0.00");          // Stop_ATR_x, RR_Ratio
+    recommendationsSheet.getRange('I2:I').setNumberFormat("#,##0.00");       // Profit Factor
+    recommendationsSheet.getRange('J2:K').setNumberFormat("0.00%");          // Accuracy and Drawdown
 
     for (let i = 0; i < recommendations.length; i++) {
       const direction = recommendations[i][1]; // Column B
@@ -704,6 +723,53 @@ function getOrCreateSheet(ss, name) { return ss.getSheetByName(name) || ss.inser
  * @returns {number} The lower bound of the confidence interval.
  */
 function calculateWilsonScoreLowerBound(wins, n, z = 1.96) { if (!n) return 0; const p = wins / n; const z2 = z * z; const denominator = 1 + z2 / n; const center = p + z2 / (2 * n); const margin = z * Math.sqrt((p * (1 - p) + z2 / (4 * n)) / n); return Math.max(0, (center - margin) / denominator); }
+
+
+/**
+ * Calculates the Average True Range (ATR) for a given dataset.
+ * @param {Array<Object>} priceData Array of price objects {high, low, close}.
+ * @param {number} period The period over which to calculate the ATR.
+ * @returns {Array<number|null>} An array of ATR values, aligned with priceData, with nulls for non-calculable initial periods.
+ */
+function calculateATR(priceData, period) {
+  if (!priceData || priceData.length < period) {
+    return new Array(priceData.length).fill(null);
+  }
+
+  const trs = [];
+  // First TR is just high - low, as there's no previous close
+  trs.push(priceData[0].high - priceData[0].low);
+
+  // Calculate TR for the rest of the data
+  for (let i = 1; i < priceData.length; i++) {
+    const high = priceData[i].high;
+    const low = priceData[i].low;
+    const prevClose = priceData[i - 1].close;
+
+    const tr = Math.max(
+      high - low,
+      isFinite(prevClose) ? Math.abs(high - prevClose) : 0,
+      isFinite(prevClose) ? Math.abs(low - prevClose) : 0
+    );
+    trs.push(tr);
+  }
+
+  const atrs = new Array(priceData.length).fill(null);
+
+  // Calculate the first ATR value (simple average of first 'period' TRs)
+  let sumFirstTrs = 0;
+  for (let i = 0; i < period; i++) {
+    sumFirstTrs += trs[i];
+  }
+  atrs[period - 1] = sumFirstTrs / period;
+
+  // Calculate subsequent ATRs using the Wilder's smoothing method
+  for (let i = period; i < priceData.length; i++) {
+    atrs[i] = (atrs[i - 1] * (period - 1) + trs[i]) / period;
+  }
+
+  return atrs;
+}
 
 
 /**
