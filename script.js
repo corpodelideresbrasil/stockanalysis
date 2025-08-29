@@ -30,7 +30,7 @@ const CONFIG = {
   PERCENT_STEP: 0.1,      // Step to increment percentage in tests
   ATR_PERIOD: 14,         // The period for calculating the Average True Range (ATR).
   STOP_LOSS_ATR_MULTIPLIERS: [1.2, 1.6, 2.0, 2.5], // Stop loss options to test, as multiples of ATR.
-  REWARD_RISK_RATIO_OPTIONS: [1.2, 1.6, 2.0, 2.5], // Reward/Risk ratio options to test
+  TARGET_RECOVERY_RATIO_OPTIONS: [0.5, 0.75, 1.0, 1.25], // Target options, as multiples of the initial pullback.
 
   // --- Recommendation Filtering Criteria ---
   MIN_ACCURACY_PERCENT: 70, // Minimum win rate for a strategy to be considered
@@ -297,9 +297,9 @@ function runAnalysisForPeriod(ticker, priceData, analysisType) {
       const minP = Math.max(0.1, startPercent); // Use dynamic value but ensure a floor of 0.1%
 
       for (const stopMultiplier of CONFIG.STOP_LOSS_ATR_MULTIPLIERS) {
-        for (const ratio of CONFIG.REWARD_RISK_RATIO_OPTIONS) {
+        for (const recoveryRatio of CONFIG.TARGET_RECOVERY_RATIO_OPTIONS) {
           for (let p = minP; p <= CONFIG.PERCENT_MAX + 1e-9; p += CONFIG.PERCENT_STEP) {
-            const metrics = calculateBacktestMetrics(priceData, p, direction, atrData, stopMultiplier, ratio);
+            const metrics = calculateBacktestMetrics(priceData, p, direction, atrData, stopMultiplier, recoveryRatio);
             const isValid = metrics.trades >= CONFIG.MIN_TRADES &&
                             metrics.accuracy >= CONFIG.MIN_ACCURACY_PERCENT &&
                             metrics.ciLower >= CONFIG.MIN_WILSON_LOWER_BOUND &&
@@ -320,59 +320,64 @@ function runAnalysisForPeriod(ticker, priceData, analysisType) {
         }
       }
     }
+
+    const strategies = new Map();
+
+    // Helper to add a strategy to the map, avoiding duplicates and tagging how it was optimized
+    const addStrategy = (strategy, optimizedBy, direction) => {
+      if (!strategy) return;
+      const key = `${direction}-${strategy.p}-${strategy.stopLossAtrMultiplier}-${strategy.targetRecoveryRatio}`;
+      if (strategies.has(key)) {
+        // If the same strategy is optimal for both, combine the 'optimizedBy' tag
+        const existing = strategies.get(key);
+        if (!existing.optimizedBy.includes(optimizedBy)) {
+          existing.optimizedBy += ` & ${optimizedBy}`;
+        }
+      } else {
+        strategies.set(key, { ...strategy, optimizedBy: optimizedBy, direction: direction });
+      }
+    };
+
+    addStrategy(bests.BUY.byProfitFactor, 'Profit Factor', 'COMPRA');
+    addStrategy(bests.BUY.byAccuracy, 'Accuracy', 'COMPRA');
+    addStrategy(bests.SELL.byProfitFactor, 'Profit Factor', 'VENDA');
+    addStrategy(bests.SELL.byAccuracy, 'Accuracy', 'VENDA');
+
+    const recommendations = [];
+    const cleanedTicker = cleanTickerSymbol(ticker);
+    const previousClose = priceData.length >= 2 ? priceData[priceData.length - 1].close : 0;
+    const latestAtr = atrData[atrData.length - 1];
+
+    strategies.forEach(strat => {
+      const entryPrice = strat.direction === 'COMPRA'
+        ? previousClose * (1 - strat.p / 100)
+        : previousClose * (1 + strat.p / 100);
+
+      const pullbackAmount = Math.abs(previousClose - entryPrice);
+
+      recommendations.push({
+        ticker: cleanedTicker,
+        direction: strat.direction,
+        optimizedBy: strat.optimizedBy,
+        entry: entryPrice,
+        stopLossAtrMultiplier: strat.stopLossAtrMultiplier,
+        targetRecoveryRatio: strat.targetRecoveryRatio,
+        // Add human-readable stop/target based on latest data
+        stopValue: latestAtr * strat.stopLossAtrMultiplier,
+        targetValue: pullbackAmount * strat.targetRecoveryRatio,
+        profitFactor: strat.profitFactor,
+        accuracy: strat.accuracy,
+        maxDD: strat.maxDD,
+        analysisType: analysisType,
+        fullMetrics: strat
+      });
+    });
+
+    return recommendations;
   }
 
-  const strategies = new Map();
-
-  // Helper to add a strategy to the map, avoiding duplicates and tagging how it was optimized
-  const addStrategy = (strategy, optimizedBy, direction) => {
-    if (!strategy) return;
-    const key = `${direction}-${strategy.p}-${strategy.stopLossAtrMultiplier}-${strategy.rewardRiskRatio}`;
-    if (strategies.has(key)) {
-      // If the same strategy is optimal for both, combine the 'optimizedBy' tag
-      const existing = strategies.get(key);
-      if (!existing.optimizedBy.includes(optimizedBy)) {
-        existing.optimizedBy += ` & ${optimizedBy}`;
-      }
-    } else {
-      strategies.set(key, { ...strategy, optimizedBy: optimizedBy, direction: direction });
-    }
-  };
-
-  addStrategy(bests.BUY.byProfitFactor, 'Profit Factor', 'COMPRA');
-  addStrategy(bests.BUY.byAccuracy, 'Accuracy', 'COMPRA');
-  addStrategy(bests.SELL.byProfitFactor, 'Profit Factor', 'VENDA');
-  addStrategy(bests.SELL.byAccuracy, 'Accuracy', 'VENDA');
-
-  const recommendations = [];
-  const cleanedTicker = cleanTickerSymbol(ticker);
-  const previousClose = priceData.length >= 2 ? priceData[priceData.length - 1].close : 0;
-  const latestAtr = atrData[atrData.length - 1];
-
-  strategies.forEach(strat => {
-    const entryPrice = strat.direction === 'COMPRA'
-      ? previousClose * (1 - strat.p / 100)
-      : previousClose * (1 + strat.p / 100);
-
-    recommendations.push({
-      ticker: cleanedTicker,
-      direction: strat.direction,
-      optimizedBy: strat.optimizedBy,
-      entry: entryPrice,
-      stopLossAtrMultiplier: strat.stopLossAtrMultiplier,
-      rewardRiskRatio: strat.rewardRiskRatio,
-      // Add human-readable stop/target based on latest data
-      stopValue: latestAtr * strat.stopLossAtrMultiplier,
-      targetValue: latestAtr * strat.stopLossAtrMultiplier * strat.rewardRiskRatio,
-      profitFactor: strat.profitFactor,
-      accuracy: strat.accuracy,
-      maxDD: strat.maxDD,
-      analysisType: analysisType,
-      fullMetrics: strat
-    });
-  });
-
-  return recommendations;
+  // If we reach here, it means there was not enough data for ATR analysis.
+  return [];
 }
 
 
@@ -460,16 +465,16 @@ function generateParametersAndRecommendations() {
 
 /**
  * Calculates backtesting metrics for a given dataset and a specific OCO (One-Cancels-the-Other) strategy.
- * This version uses a dynamic ATR-based stop loss and target.
+ * This version uses a dynamic ATR-based stop loss and a target based on pullback recovery.
  * @param {Array<Object>} priceData Array of price objects {close, high, low}.
  * @param {number} p The percentage trigger for the entry.
  * @param {string} direction 'BUY' or 'SELL'.
  * @param {Array<number|null>} atrData The array of ATR values for the dataset.
  * @param {number} stopLossAtrMultiplier The multiplier for the ATR to set the stop loss.
- * @param {number} rewardRiskRatio The reward/risk ratio for the strategy.
+ * @param {number} targetRecoveryRatio The ratio of the initial pullback to set the target.
  * @returns {Object} An object containing all calculated metrics for the strategy.
  */
-function calculateBacktestMetrics(priceData, p, direction, atrData, stopLossAtrMultiplier, rewardRiskRatio) {
+function calculateBacktestMetrics(priceData, p, direction, atrData, stopLossAtrMultiplier, targetRecoveryRatio) {
   let trades = 0, wins = 0, sumSignedReturns = 0, totalGains = 0, totalLosses = 0;
   let cumulativeReturn = 0, peak = 0, maxDrawdown = 0;
 
@@ -486,14 +491,15 @@ function calculateBacktestMetrics(priceData, p, direction, atrData, stopLossAtrM
     let returnPct = 0;
     let tradeOccurred = false;
 
-    // Define stop and target amounts based on ATR
+    // Define stop amount based on ATR
     const stopAmount = atrValue * stopLossAtrMultiplier;
-    const targetAmount = stopAmount * rewardRiskRatio;
 
     if (direction === 'BUY') {
       entryPrice = previousClose * (1 - p / 100);
       if (low <= entryPrice && entryPrice > 0) {
         tradeOccurred = true;
+        const pullbackAmount = previousClose - entryPrice;
+        const targetAmount = pullbackAmount * targetRecoveryRatio;
         const stopPrice = entryPrice - stopAmount;
         const targetPrice = entryPrice + targetAmount;
 
@@ -509,6 +515,8 @@ function calculateBacktestMetrics(priceData, p, direction, atrData, stopLossAtrM
       entryPrice = previousClose * (1 + p / 100);
       if (high >= entryPrice && entryPrice > 0) {
         tradeOccurred = true;
+        const pullbackAmount = entryPrice - previousClose;
+        const targetAmount = pullbackAmount * targetRecoveryRatio;
         const stopPrice = entryPrice + stopAmount;
         const targetPrice = entryPrice - targetAmount;
 
@@ -552,7 +560,7 @@ function calculateBacktestMetrics(priceData, p, direction, atrData, stopLossAtrM
 
   return {
     accuracy, trades, avgGain, ciLower, avgWin, avgLoss, maxDD: maxDrawdown, profitFactor,
-    p, stopLossAtrMultiplier, rewardRiskRatio // Pass through the params for easy tracking
+    p, stopLossAtrMultiplier, targetRecoveryRatio // Pass through the params for easy tracking
   };
 }
 
@@ -593,7 +601,7 @@ function filterAndFormatRecommendations(allRecommendations) {
   const finalRecsMap = new Map();
   for (const rec of combinedRecs) {
     // A key based on the core strategy parameters ensures uniqueness.
-    const strategyKey = `${rec.ticker}_${rec.direction}_${rec.fullMetrics.p}_${rec.fullMetrics.stopLossAtrMultiplier}_${rec.fullMetrics.rewardRiskRatio}`;
+    const strategyKey = `${rec.ticker}_${rec.direction}_${rec.fullMetrics.p}_${rec.fullMetrics.stopLossAtrMultiplier}_${rec.fullMetrics.targetRecoveryRatio}`;
     if (!finalRecsMap.has(strategyKey)) {
       finalRecsMap.set(strategyKey, rec);
     }
@@ -625,7 +633,7 @@ function filterAndFormatRecommendations(allRecommendations) {
     rec.stopValue, // Human-readable stop loss value for today
     rec.targetValue, // Human-readable target gain value for today
     rec.stopLossAtrMultiplier,
-    rec.rewardRiskRatio,
+    rec.targetRecoveryRatio,
     rec.profitFactor,
     rec.accuracy / 100,
     rec.maxDD / 100
@@ -640,7 +648,7 @@ function filterAndFormatRecommendations(allRecommendations) {
 function writeRecommendationsToSheet(ss, recommendations) {
   const recommendationsSheet = getOrCreateSheet(ss, CONFIG.RECOMMENDATIONS_SHEET);
   recommendationsSheet.clear();
-  const header = ["Ticker", "Direction", "Optimized_By", "Entrada", "Stop_Value", "Target_Value", "Stop_ATR_x", "RR_Ratio", "Profit_Factor", "Accuracy(%)", "Max_Drawdown(%)"];
+  const header = ["Ticker", "Direction", "Optimized_By", "Entrada", "Stop_Value", "Target_Value", "Stop_ATR_x", "Recovery_Ratio", "Profit_Factor", "Accuracy(%)", "Max_Drawdown(%)"];
   recommendationsSheet.appendRow(header);
 
   if (recommendations.length > 0) {
@@ -649,7 +657,7 @@ function writeRecommendationsToSheet(ss, recommendations) {
 
     // --- Apply Formatting ---
     recommendationsSheet.getRange('D2:F').setNumberFormat("R$ #,##0.00");      // Entry, Stop_Value, Target_Value
-    recommendationsSheet.getRange('G2:H').setNumberFormat("0.00");          // Stop_ATR_x, RR_Ratio
+    recommendationsSheet.getRange('G2:H').setNumberFormat("0.00");          // Stop_ATR_x, Recovery_Ratio
     recommendationsSheet.getRange('I2:I').setNumberFormat("#,##0.00");       // Profit Factor
     recommendationsSheet.getRange('J2:K').setNumberFormat("0.00%");          // Accuracy and Drawdown
 
