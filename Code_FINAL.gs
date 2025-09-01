@@ -54,22 +54,22 @@ const CONFIG = {
   // --- Parâmetros da Análise Estatística ---
   MIN_TRADES_PARA_SIGNIFICANCIA: 30,
   GATILHO_STEP: 0.1,
-  GATILHO_INICIAL: 0.5,
+  GATILHO_INICIAL: 0.2,
 
   // --- Configurações dos Perfis de Risco ---
   PERFIS: {
     CONSERVADOR: {
       SHEET_NAME: "Recomendacoes_Conservador",
-      PROB_LUCRO_TOTAL_MIN: 0.80,
+      PROB_LUCRO_TOTAL_MIN: 0.70,
       DRAWDOWN_MAX: 0.03,
-      RELACAO_GANHO_RISCO_MIN: 2.0,
+      RELACAO_GANHO_RISCO_MIN: 1.0, // Alterado para 1.0 para simulação 1:1
       OTIMIZAR_POR: 'probS1'
     },
     AGRESSIVO: {
       SHEET_NAME: "Recomendacoes_Agressivo",
-      PROB_LUCRO_TOTAL_MIN: 0.75,
+      PROB_LUCRO_TOTAL_MIN: 0.65,
       DRAWDOWN_MAX: 0.05,
-      RELACAO_GANHO_RISCO_MIN: 1.2,
+      RELACAO_GANHO_RISCO_MIN: 1.0, // Alterado para 1.0 para simulação 1:1
       OTIMIZAR_POR: 'probS1'
     }
   }
@@ -149,7 +149,6 @@ function gerarRecomendacoesEstatisticas() {
 
     Logger.log(`- Analisando Ticker: ${ticker}`);
 
-    // ETAPA 1: Pré-cálculo das médias de variação
     const mediasDeVariacao = precalcularMediasDeVariacao(priceData);
     Logger.log(`  - Médias pré-calculadas -> Positiva: ${(mediasDeVariacao.media_variacao_positiva * 100).toFixed(2)}%, Negativa: ${(mediasDeVariacao.media_variacao_negativa * 100).toFixed(2)}%`);
 
@@ -246,25 +245,10 @@ function escreverRecomendacoesPorPerfil(ss, allResults, perfilConfig, byTicker) 
   ];
   recSheet.appendRow(header);
 
-  const preQualified = allResults.filter(r =>
+  const qualifiedRecs = allResults.filter(r =>
     r.probS1 >= perfilConfig.PROB_LUCRO_TOTAL_MIN &&
     r.maxDrawdown <= perfilConfig.DRAWDOWN_MAX
   );
-
-  if (preQualified.length > 0) {
-      const failingRiskReward = preQualified.filter(r => {
-        const riskRewardRatio = r.maxDrawdown > 0 ? r.avgS1Profit / r.maxDrawdown : 0;
-        return riskRewardRatio < perfilConfig.RELACAO_GANHO_RISCO_MIN;
-      });
-      if (failingRiskReward.length > 0) {
-        Logger.log(`DEBUG: ${failingRiskReward.length} recomendações para ${perfilConfig.SHEET_NAME} foram barradas pelo filtro de Risco/Retorno. Exemplo: ${JSON.stringify(failingRiskReward[0], null, 2)}`);
-      }
-  }
-
-  const qualifiedRecs = preQualified.filter(r => {
-    const riskRewardRatio = r.maxDrawdown > 0 ? r.avgS1Profit / r.maxDrawdown : 0;
-    return r.maxDrawdown === 0 || riskRewardRatio >= perfilConfig.RELACAO_GANHO_RISCO_MIN;
-  });
   Logger.log(`  - ${qualifiedRecs.length} de ${allResults.length} resultados qualificados para o perfil.`);
 
   const bestRecsMap = new Map();
@@ -294,7 +278,7 @@ function escreverRecomendacoesPorPerfil(ss, allResults, perfilConfig, byTicker) 
       const entryPrice = rec.direcao === 'COMPRA'
         ? lastClose * (1 - rec.gatilhoPercent / 100)
         : lastClose * (1 + rec.gatilhoPercent / 100);
-      const riskRewardRatio = rec.maxDrawdown > 0 ? rec.avgS1Profit / rec.maxDrawdown : 'N/A';
+      const riskRewardRatio = 1.0;
 
       return [
         rec.ticker,
@@ -303,7 +287,7 @@ function escreverRecomendacoesPorPerfil(ss, allResults, perfilConfig, byTicker) 
         lastClose,
         entryPrice,
         rec.avgS1Profit,
-        rec.maxDrawdown,
+        rec.avgS1Profit,
         rec.probS1,
         rec.totalTrades,
         riskRewardRatio
