@@ -4,9 +4,9 @@
  *
  * O script a seguir é uma ferramenta para backtesting de estratégias de day-trading
  * baseadas em reversão à média. Esta é a versão final, que incorpora um "Score" de
- * otimização, um robusto backtest "Ponto-no-Tempo" otimizado e um log de rastreabilidade.
+ * otimização, um robusto backtest "Ponto-no-Tempo" e parâmetros de calibração de alvo.
  *
- * VERSÃO: Final Definitiva com Correção de Lógica do Backtest
+ * VERSÃO: Final com Calibração de Alvo
  * DATA: 2025-09-01
  */
 
@@ -22,6 +22,10 @@ const CONFIG = {
   MIN_TRADES_PARA_SIGNIFICANCIA: 30,
   GATILHO_STEP: 0.1,
   GATILHO_INICIAL: 0.2,
+
+  // --- Parâmetros de Calibração de Alvo ---
+  DP_MULTIPLIER_GAIN: 0.8, // Fator de ambição para o alvo de ganho (Média + Fator * DP)
+  DP_MULTIPLIER_STOP: 1.2, // Fator de segurança para o stop loss (Média + Fator * DP)
 
   PERFIS: {
     CONSERVADOR: {
@@ -195,8 +199,10 @@ function motorDeAnalise(ss, allData, endDate) {
         if (priceData.length < 2) continue;
         const stats = statsByTicker[ticker];
         if (!stats || priceData.length < CONFIG.MIN_TRADES_PARA_SIGNIFICANCIA) continue;
-        const targetGain = stats.avgPosVar + stats.stdDevPosVar;
-        const targetStop = Math.abs(stats.avgNegVar) + stats.stdDevNegVar;
+
+        const targetGain = stats.avgPosVar + (CONFIG.DP_MULTIPLIER_GAIN * stats.stdDevPosVar);
+        const targetStop = Math.abs(stats.avgNegVar) + (CONFIG.DP_MULTIPLIER_STOP * stats.stdDevNegVar);
+
         if (targetGain <= 0 || targetStop <= 0) continue;
         const intervaloMaximo = Math.max(stats.avgPosVar, Math.abs(stats.avgNegVar)) + Math.max(stats.stdDevPosVar, stats.stdDevNegVar);
         for (const direcao of ['COMPRA', 'VENDA']) {
