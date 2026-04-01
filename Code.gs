@@ -24,9 +24,9 @@ const CONFIG = {
   // --- Parâmetros Gerais ---
   LOTE_ACOES_BACKTEST: 100,
   NUM_DIAS_BACKTEST: 4,
-  BATCH_SIZE: 20, // Número de ativos processados por lote interno
-  MAX_WAIT_MS: 15000, // Tempo máximo de espera para o GoogleFinance por lote (ms)
-  MAX_EXEC_TIME_MS: 330000, // 5.5 minutos (limite de execução do Apps Script é ~6 min)
+  BATCH_SIZE: 5, // Lote reduzido para máxima estabilidade do serviço
+  MAX_WAIT_MS: 20000, // Aumentado tempo de espera para dados pesados
+  MAX_EXEC_TIME_MS: 320000, // 5.3 minutos
 
   // --- Parâmetros da Análise Estatística ---
   MIN_TRADES_PARA_SIGNIFICANCIA: 20,
@@ -505,6 +505,9 @@ function getPriceDataForDate(allData, date) {
 function atualizarDadosDiarios() {
   const startTime = new Date().getTime();
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  // Força uma conexão inicial e verifica se o documento está acessível
+  try { ss.getName(); } catch(e) { Utilities.sleep(2000); }
+
   const properties = PropertiesService.getUserProperties();
   const lastIndexStr = properties.getProperty('lastProcessedTickerIndex') || '0';
   let lastIndex = parseInt(lastIndexStr, 10);
@@ -532,6 +535,9 @@ function atualizarDadosDiarios() {
     SpreadsheetApp.flush();
   }
 
+  const tmpName = `_TMP_BATCH_FETCH`;
+  let tmp = ss.getSheetByName(tmpName) || ss.insertSheet(tmpName);
+
   while (lastIndex < allTickers.length) {
     const currentTime = new Date().getTime();
     if (currentTime - startTime > CONFIG.MAX_EXEC_TIME_MS) {
@@ -542,42 +548,59 @@ function atualizarDadosDiarios() {
     const tickersToProcess = allTickers.slice(lastIndex, lastIndex + CONFIG.BATCH_SIZE);
     ss.toast(`Processando ativos ${lastIndex + 1} a ${lastIndex + tickersToProcess.length} de ${allTickers.length}...`, "Status", -1);
 
-    const tmpName = `_TMP_BATCH_${Utilities.getUuid().slice(0, 8)}`;
-    const tmp = ss.insertSheet(tmpName);
     const rowsToWrite = [];
 
     try {
+      // Tenta recuperar a planilha temporária de forma mais resiliente
+      tmp = ss.getSheetByName(tmpName) || ss.insertSheet(tmpName);
+
+      tmp.clear();
+      SpreadsheetApp.flush();
+      Utilities.sleep(1000);
+
       // 1. Inserir fórmulas em paralelo
-      tickersToProcess.forEach((ticker, idx) => {
-        const dataInicio = new Date(2025, 0, 2);
-        const formula = `=GOOGLEFINANCE("${ticker}"; "all"; DATE(${dataInicio.getFullYear()};${dataInicio.getMonth()+1};${dataInicio.getDate()}); TODAY())`;
-        tmp.getRange(1, idx * 7 + 1).setFormula(formula);
+      const dataInicio = new Date(2025, 0, 2);
+      const formulas = [tickersToProcess.map(ticker =>
+        `=GOOGLEFINANCE("${ticker}"; "all"; DATE(${dataInicio.getFullYear()};${dataInicio.getMonth()+1};${dataInicio.getDate()}); TODAY())`
+      )];
+
+      const sparseFormulas = [[]];
+      formulas[0].forEach(f => {
+        sparseFormulas[0].push(f);
+        for(let i=0; i<6; i++) sparseFormulas[0].push("");
       });
 
+      tmp.getRange(1, 1, 1, sparseFormulas[0].length).setFormulas(sparseFormulas);
       SpreadsheetApp.flush();
 
-      // 2. Aguardar o carregamento dos dados
+      // 2. Aguardar o carregamento
       let waited = 0;
-      const pollInterval = 1500;
+      const pollInterval = 2500;
       while (waited < CONFIG.MAX_WAIT_MS) {
         Utilities.sleep(pollInterval);
         waited += pollInterval;
 
-        let allLoaded = true;
-        tickersToProcess.forEach((_, idx) => {
-          const val = tmp.getRange(2, idx * 7 + 1).getValue();
-          if (val === "" || String(val).includes("Loading")) allLoaded = false;
-        });
-        if (allLoaded) break;
+        const statusRow = tmp.getRange(2, 1, 1, sparseFormulas[0].length).getValues()[0];
+        let anyLoading = false;
+        for (let idx = 0; idx < tickersToProcess.length; idx++) {
+          const val = statusRow[idx * 7];
+          if (val === "" || String(val).includes("Loading")) {
+            anyLoading = true;
+            break;
+          }
+        }
+        if (!anyLoading) break;
       }
 
       // 3. Coletar os dados
-      tickersToProcess.forEach((ticker, idx) => {
-        const dataRange = tmp.getRange(1, idx * 7 + 1).getDataRegion();
-        const data = dataRange.getValues();
+      const allBatchData = tmp.getDataRange().getValues();
 
-        if (data.length > 1 && data[0][0] !== '#N/A' && !String(data[0][0]).includes("Error")) {
-          const header = data[0].map(h => String(h).toLowerCase());
+      tickersToProcess.forEach((ticker, idx) => {
+        const startCol = idx * 7;
+        const tickerData = allBatchData.map(row => row.slice(startCol, startCol + 6)).filter(row => row[0] !== "");
+
+        if (tickerData.length > 1 && tickerData[0][0] !== '#N/A' && !String(tickerData[0][0]).includes("Error")) {
+          const header = tickerData[0].map(h => String(h).toLowerCase());
           const iD = header.indexOf("date");
           const iO = header.indexOf("open");
           const iH = header.indexOf("high");
@@ -585,14 +608,12 @@ function atualizarDadosDiarios() {
           const iC = header.indexOf("close");
 
           if (iD !== -1 && iC !== -1) {
-            for (let r = 1; r < data.length; r++) {
-              if (data[r][iD] instanceof Date) {
-                 rowsToWrite.push([ticker, data[r][iD], data[r][iO], data[r][iH], data[r][iL], data[r][iC]]);
+            for (let r = 1; r < tickerData.length; r++) {
+              if (tickerData[r][iD] instanceof Date) {
+                 rowsToWrite.push([ticker, tickerData[r][iD], tickerData[r][iO], tickerData[r][iH], tickerData[r][iL], tickerData[r][iC]]);
               }
             }
           }
-        } else {
-          Logger.log(`Nenhum dado retornado para ${ticker}. Pode ser que o GoogleFinance esteja indisponível.`);
         }
       });
 
@@ -602,13 +623,17 @@ function atualizarDadosDiarios() {
 
     } catch (e) {
       Logger.log(`Erro no lote em ${lastIndex}: ${e.message}`);
-    } finally {
-      try { ss.deleteSheet(tmp); } catch(err) {}
+      // Se der erro de timeout de serviço, tenta reduzir o ritmo
+      Utilities.sleep(5000);
     }
 
     lastIndex += tickersToProcess.length;
     properties.setProperty('lastProcessedTickerIndex', String(lastIndex));
+    // Pequena pausa entre lotes para estabilidade
+    Utilities.sleep(1000);
   }
+
+  try { ss.deleteSheet(tmp); } catch(e) {}
 
   dadosSh.getRange("C:F").setNumberFormat("#,##0.00");
   properties.deleteProperty('lastProcessedTickerIndex');
