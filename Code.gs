@@ -24,8 +24,9 @@ const CONFIG = {
   // --- Parâmetros Gerais ---
   LOTE_ACOES_BACKTEST: 100,
   NUM_DIAS_BACKTEST: 4,
-  BATCH_SIZE: 5, // Número de ativos processados por vez
-  MAX_WAIT_MS: 20000, // Tempo máximo de espera para o GoogleFinance (ms)
+  BATCH_SIZE: 20, // Número de ativos processados por lote interno
+  MAX_WAIT_MS: 15000, // Tempo máximo de espera para o GoogleFinance por lote (ms)
+  MAX_EXEC_TIME_MS: 330000, // 5.5 minutos (limite de execução do Apps Script é ~6 min)
 
   // --- Parâmetros da Análise Estatística ---
   MIN_TRADES_PARA_SIGNIFICANCIA: 20,
@@ -502,6 +503,7 @@ function getPriceDataForDate(allData, date) {
 }
 
 function atualizarDadosDiarios() {
+  const startTime = new Date().getTime();
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const properties = PropertiesService.getUserProperties();
   const lastIndexStr = properties.getProperty('lastProcessedTickerIndex') || '0';
@@ -519,13 +521,9 @@ function atualizarDadosDiarios() {
   }
 
   if (lastIndex >= allTickers.length) {
-    ss.toast("Todos os tickers já foram processados.");
     properties.deleteProperty('lastProcessedTickerIndex');
-    return true;
+    lastIndex = 0; // Se já processou tudo antes, recomeça do zero para nova atualização
   }
-
-  const tickersToProcess = allTickers.slice(lastIndex, lastIndex + CONFIG.BATCH_SIZE);
-  ss.toast(`Processando lote: ${lastIndex + 1} a ${lastIndex + tickersToProcess.length} de ${allTickers.length}...`, "Status", -1);
 
   const dadosSh = upsertSheet(ss, CONFIG.NOME_ABA_DADOS);
   if (lastIndex === 0) {
@@ -534,87 +532,88 @@ function atualizarDadosDiarios() {
     SpreadsheetApp.flush();
   }
 
-  const tmpName = `_TMP_BATCH_${Utilities.getUuid().slice(0, 8)}`;
-  const tmp = ss.insertSheet(tmpName);
-  const rowsToWrite = [];
-
-  try {
-    // 1. Inserir fórmulas em paralelo
-    tickersToProcess.forEach((ticker, idx) => {
-      const dataInicio = new Date(2025, 0, 2);
-      const formula = `=GOOGLEFINANCE("${ticker}"; "all"; DATE(${dataInicio.getFullYear()};${dataInicio.getMonth()+1};${dataInicio.getDate()}); TODAY())`;
-      tmp.getRange(1, idx * 7 + 1).setFormula(formula);
-    });
-
-    SpreadsheetApp.flush();
-
-    // 2. Aguardar o carregamento dos dados
-    let waited = 0;
-    const pollInterval = 2000;
-    while (waited < CONFIG.MAX_WAIT_MS) {
-      Utilities.sleep(pollInterval);
-      waited += pollInterval;
-
-      let allLoaded = true;
-      tickersToProcess.forEach((_, idx) => {
-        const val = tmp.getRange(2, idx * 7 + 1).getValue();
-        if (val === "" || val === "#N/A" || String(val).includes("Loading")) {
-          // Se for #N/A, pode ser erro real ou ainda carregando.
-          // No GoogleFinance, as vezes o erro demora a aparecer.
-          if (val === "" || String(val).includes("Loading")) allLoaded = false;
-        }
-      });
-      if (allLoaded) break;
+  while (lastIndex < allTickers.length) {
+    const currentTime = new Date().getTime();
+    if (currentTime - startTime > CONFIG.MAX_EXEC_TIME_MS) {
+      ss.toast(`Tempo limite atingido. Progresso salvo (${lastIndex}/${allTickers.length}).`, "Status", 10);
+      return false;
     }
 
-    // 3. Coletar os dados
-    tickersToProcess.forEach((ticker, idx) => {
-      const dataRange = tmp.getRange(1, idx * 7 + 1).getDataRegion();
-      const data = dataRange.getValues();
+    const tickersToProcess = allTickers.slice(lastIndex, lastIndex + CONFIG.BATCH_SIZE);
+    ss.toast(`Processando ativos ${lastIndex + 1} a ${lastIndex + tickersToProcess.length} de ${allTickers.length}...`, "Status", -1);
 
-      if (data.length > 1 && data[0][0] !== '#N/A' && !String(data[0][0]).includes("Error")) {
-        // Mapear colunas (Date, Open, High, Low, Close)
-        const header = data[0].map(h => String(h).toLowerCase());
-        const iD = header.indexOf("date");
-        const iO = header.indexOf("open");
-        const iH = header.indexOf("high");
-        const iL = header.indexOf("low");
-        const iC = header.indexOf("close");
+    const tmpName = `_TMP_BATCH_${Utilities.getUuid().slice(0, 8)}`;
+    const tmp = ss.insertSheet(tmpName);
+    const rowsToWrite = [];
 
-        if (iD !== -1 && iC !== -1) {
-          for (let r = 1; r < data.length; r++) {
-            if (data[r][iD] instanceof Date) {
-               rowsToWrite.push([ticker, data[r][iD], data[r][iO], data[r][iH], data[r][iL], data[r][iC]]);
+    try {
+      // 1. Inserir fórmulas em paralelo
+      tickersToProcess.forEach((ticker, idx) => {
+        const dataInicio = new Date(2025, 0, 2);
+        const formula = `=GOOGLEFINANCE("${ticker}"; "all"; DATE(${dataInicio.getFullYear()};${dataInicio.getMonth()+1};${dataInicio.getDate()}); TODAY())`;
+        tmp.getRange(1, idx * 7 + 1).setFormula(formula);
+      });
+
+      SpreadsheetApp.flush();
+
+      // 2. Aguardar o carregamento dos dados
+      let waited = 0;
+      const pollInterval = 1500;
+      while (waited < CONFIG.MAX_WAIT_MS) {
+        Utilities.sleep(pollInterval);
+        waited += pollInterval;
+
+        let allLoaded = true;
+        tickersToProcess.forEach((_, idx) => {
+          const val = tmp.getRange(2, idx * 7 + 1).getValue();
+          if (val === "" || String(val).includes("Loading")) allLoaded = false;
+        });
+        if (allLoaded) break;
+      }
+
+      // 3. Coletar os dados
+      tickersToProcess.forEach((ticker, idx) => {
+        const dataRange = tmp.getRange(1, idx * 7 + 1).getDataRegion();
+        const data = dataRange.getValues();
+
+        if (data.length > 1 && data[0][0] !== '#N/A' && !String(data[0][0]).includes("Error")) {
+          const header = data[0].map(h => String(h).toLowerCase());
+          const iD = header.indexOf("date");
+          const iO = header.indexOf("open");
+          const iH = header.indexOf("high");
+          const iL = header.indexOf("low");
+          const iC = header.indexOf("close");
+
+          if (iD !== -1 && iC !== -1) {
+            for (let r = 1; r < data.length; r++) {
+              if (data[r][iD] instanceof Date) {
+                 rowsToWrite.push([ticker, data[r][iD], data[r][iO], data[r][iH], data[r][iL], data[r][iC]]);
+              }
             }
           }
+        } else {
+          Logger.log(`Nenhum dado retornado para ${ticker}. Pode ser que o GoogleFinance esteja indisponível.`);
         }
-      } else {
-        Logger.log(`Nenhum dado retornado para ${ticker} neste lote.`);
+      });
+
+      if (rowsToWrite.length > 0) {
+        dadosSh.getRange(dadosSh.getLastRow() + 1, 1, rowsToWrite.length, rowsToWrite[0].length).setValues(rowsToWrite);
       }
-    });
 
-  } catch (e) {
-    Logger.log(`Erro no lote: ${e.message}`);
-    throw e;
-  } finally {
-    ss.deleteSheet(tmp);
+    } catch (e) {
+      Logger.log(`Erro no lote em ${lastIndex}: ${e.message}`);
+    } finally {
+      try { ss.deleteSheet(tmp); } catch(err) {}
+    }
+
+    lastIndex += tickersToProcess.length;
+    properties.setProperty('lastProcessedTickerIndex', String(lastIndex));
   }
 
-  if (rowsToWrite.length > 0) {
-    dadosSh.getRange(dadosSh.getLastRow() + 1, 1, rowsToWrite.length, rowsToWrite[0].length).setValues(rowsToWrite);
-    dadosSh.getRange("C:F").setNumberFormat("#,##0.00");
-  }
-
-  const newIndex = lastIndex + tickersToProcess.length;
-  if (newIndex >= allTickers.length) {
-    properties.deleteProperty('lastProcessedTickerIndex');
-    ss.toast("Atualização de dados concluída!", "Status", 10);
-    return true;
-  } else {
-    properties.setProperty('lastProcessedTickerIndex', String(newIndex));
-    ss.toast(`Lote concluído (${newIndex}/${allTickers.length}). Execute novamente para continuar.`, "Status", 5);
-    return false;
-  }
+  dadosSh.getRange("C:F").setNumberFormat("#,##0.00");
+  properties.deleteProperty('lastProcessedTickerIndex');
+  ss.toast("Atualização de todos os ativos concluída!", "Status", 10);
+  return true;
 }
 
 function limparDadosAntigos() {
