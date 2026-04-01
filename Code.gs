@@ -40,7 +40,7 @@ const CONFIG = {
     AGRESSIVO: {
       SHEET_NAME: "Recomendacoes_Agressivo",
       MIN_EXPECTED_VALUE: 0.005,
-      MIN_PROB_S1: 0.76,
+      MIN_PROB_S1: 0.725,
       OTIMIZAR_POR: 'score'
     }
   }
