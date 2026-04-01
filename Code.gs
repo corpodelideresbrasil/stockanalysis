@@ -1,412 +1,658 @@
-// =================================================================
-// =================== FUNÇÕES PRINCIPAIS E MENU ===================
-// =================================================================
+/**
+ * RAUL FERREIRA - Amigos do Dinheiro
+ *
+ *
+ * Meu script para backtesting da estratégias de day-trading em açoes B3,
+ * baseadas em reversão à média. Esta versão final incorpora um "Score" de
+ * otimização, um robusto backtest e uma função de atualização de
+ * dados confiável.
+ *
+ * VERSÃO: Final com Todas as Correções
+ * DATA: 2025-09-02
+ */
+
+// ===================================================================================
+// 1. CONFIGURAÇÕES GLOBAIS
+// ===================================================================================
+
+const CONFIG = {
+  // --- Nomes das Abas ---
+  NOME_ABA_TICKERS: 'TICKERS',
+  NOME_ABA_DADOS: 'Dados diários',
+  NOME_ABA_PERFIL_ESTATISTICO: 'Perfil_Estatistico_Ativos',
+
+  // --- Parâmetros Gerais ---
+  LOTE_ACOES_BACKTEST: 100,
+  NUM_DIAS_BACKTEST: 4,
+  BATCH_SIZE: 5, // Número de ativos processados por vez
+  MAX_WAIT_MS: 20000, // Tempo máximo de espera para o GoogleFinance (ms)
+
+  // --- Parâmetros da Análise Estatística ---
+  MIN_TRADES_PARA_SIGNIFICANCIA: 20,
+  GATILHO_STEP: 0.1,
+  GATILHO_INICIAL: 0.2,
+  DP_MULTIPLIER_GAIN: 0,
+  DP_MULTIPLIER_STOP: 0.6,
+
+  // --- Perfis de Risco e Otimização ---
+  PERFIS: {
+    CONSERVADOR: {
+      SHEET_NAME: "Recomendacoes_Conservador",
+      MIN_EXPECTED_VALUE: 0.01,
+      MIN_PROB_S1: 0.80,
+      OTIMIZAR_POR: 'score'
+    },
+    AGRESSIVO: {
+      SHEET_NAME: "Recomendacoes_Agressivo",
+      MIN_EXPECTED_VALUE: 0.005,
+      MIN_PROB_S1: 0.76,
+      OTIMIZAR_POR: 'score'
+    }
+  }
+};
+
+// ===================================================================================
+// 2. FUNÇÕES DE EXECUÇÃO PRINCIPAL (Para serem chamadas manualmente)
+// ===================================================================================
 
 function onOpen() {
   SpreadsheetApp.getUi()
       .createMenu('🤖 Análise de Ações')
       .addItem('Executar Atualização Completa', 'executarAtualizacaoCompleta')
       .addSeparator()
-      .addItem('Apenas Gerar Recomendações', 'gerarParametrosERecomendacoes')
+      .addItem('Apenas Gerar Recomendações', 'apenasGerarRecomendacoes')
+      .addItem('Executar Backtest', 'executarBacktestPontoNoTempo')
       .addSeparator()
       .addItem('Limpar Dados Antigos', 'limparDadosAntigos')
       .addItem('Resetar Progresso de Lotes', 'resetarProgresso')
       .addToUi();
 }
 
-function executarAtualizacaoCompleta() {
-  SpreadsheetApp.getActiveSpreadsheet().toast("Iniciando processamento...");
-  const isDataUpdateComplete = atualizarDadosDiarios();
-  if (isDataUpdateComplete) {
-    SpreadsheetApp.getActiveSpreadsheet().toast("Atualização de dados concluída. Iniciando análise...");
-    gerarParametrosERecomendacoes();
-  }
-}
-
 function resetarProgresso() {
+  PropertiesService.getUserProperties().deleteProperty('lastProcessedTickerIndex');
+  SpreadsheetApp.getActiveSpreadsheet().toast("Progresso dos lotes foi resetado.");
+}
+
+function executarAtualizacaoCompleta() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  ss.toast("Iniciando atualização e análise completa...", "Status", -1);
   try {
-    PropertiesService.getUserProperties().deleteProperty('lastProcessedTickerIndex');
-    SpreadsheetApp.getActiveSpreadsheet().toast("Progresso dos lotes foi resetado.");
+    const isFinished = atualizarDadosDiarios();
+    if (isFinished) {
+      ss.toast("Dados atualizados. Iniciando geração de recomendações...", "Status", -1);
+      apenasGerarRecomendacoes();
+    } else {
+      ss.toast("Lote concluído. Clique novamente em 'Executar Atualização Completa' para continuar o próximo lote.", "Status", 10);
+    }
   } catch (e) {
-    SpreadsheetApp.getActiveSpreadsheet().toast("Erro ao resetar o progresso: " + e.message);
+    Logger.log(`ERRO FATAL em executarAtualizacaoCompleta: ${e.message}\n${e.stack}`);
+    SpreadsheetApp.getUi().alert(`Ocorreu um erro: ${e.message}`);
   }
 }
 
-function limparDadosAntigos() {
+function apenasGerarRecomendacoes() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheetNames = ["Dados diários", "Parametros_por_Ticker", "Recomendacoes_diarias"];
-  sheetNames.forEach(name => {
-    const sheet = ss.getSheetByName(name);
-    if (sheet) {
-      sheet.clear();
-      if (name === "Dados diários") {
-        sheet.appendRow(["Ticker", "Date", "Open", "High", "Low", "Close", "Var%"]);
+  ss.toast("Iniciando apenas a geração de recomendações...", "Status", -1);
+  try {
+    const allData = ss.getSheetByName(CONFIG.NOME_ABA_DADOS).getDataRange().getValues();
+    if (!allData || allData.length < 2) {
+      throw new Error(`Aba '${CONFIG.NOME_ABA_DADOS}' está vazia ou não foi encontrada.`);
+    }
+    const recs = motorDeAnalise(ss, allData, null);
+    escreverResultadosAnalise(ss, recs);
+    ss.toast("Novas recomendações geradas com sucesso!", "Status", 10);
+  } catch (e) {
+    Logger.log(`ERRO FATAL em apenasGerarRecomendacoes: ${e.message}\n${e.stack}`);
+    SpreadsheetApp.getUi().alert(`Ocorreu um erro: ${e.message}`);
+  }
+}
+
+function executarBacktestPontoNoTempo() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  ss.toast(`Iniciando Backtest Ponto-no-Tempo (${CONFIG.NUM_DIAS_BACKTEST} dias)...`, "Status", -1);
+  try {
+    const allData = ss.getSheetByName(CONFIG.NOME_ABA_DADOS).getDataRange().getValues();
+    const hoje = new Date();
+    const allBacktestResults = [];
+    const backtestLog = [];
+
+    const logSheet = upsertSheet(ss, "Backtest_Log");
+    logSheet.clear();
+    const logHeader = ["Data Simulação", "Ticker", "Direção", "Preço Entrada", "Status", "Resultado (R$)"];
+    logSheet.appendRow(logHeader);
+    logSheet.getRange(1, 1, 1, logHeader.length).setFontWeight("bold");
+
+    for (let i = CONFIG.NUM_DIAS_BACKTEST - 1; i >= 0; i--) {
+      const backtestDate = new Date(hoje.getTime() - ((i + 1) * 24 * 3600 * 1000));
+      const dayOfWeek = backtestDate.getDay();
+      if (dayOfWeek === 0 || dayOfWeek === 6) {
+        Logger.log(`BACKTEST: Pulando fim de semana: ${backtestDate.toDateString()}`);
+        continue;
+      }
+
+      const tradeDate = new Date(hoje.getTime() - (i * 24 * 3600 * 1000));
+      const backtestDateStr = Utilities.formatDate(backtestDate, ss.getSpreadsheetTimeZone(), "yyyy-MM-dd");
+
+      Logger.log(`BACKTEST: Gerando recomendações para ${backtestDateStr}`);
+      ss.toast(`Analisando para o dia: ${backtestDateStr}...`, `Backtest (${CONFIG.NUM_DIAS_BACKTEST - i}/${CONFIG.NUM_DIAS_BACKTEST})`, 5);
+
+      const recsDoDia = motorDeAnalise(ss, allData, backtestDate);
+
+      let combinedRecs = [];
+      for (const profileName in recsDoDia.recsByTickerProfile) {
+          combinedRecs = combinedRecs.concat(Object.values(recsDoDia.recsByTickerProfile[profileName]));
+      }
+
+      const uniqueBestRecs = {};
+      for (const rec of combinedRecs) {
+          const key = `${rec.ticker}|${rec.direcao}`;
+          if (!uniqueBestRecs[key] || rec.score > uniqueBestRecs[key].score) {
+              uniqueBestRecs[key] = rec;
+          }
+      }
+      const finalRecs = Object.values(uniqueBestRecs);
+
+      if (finalRecs.length === 0) {
+        backtestLog.push([backtestDateStr, "N/A", "N/A", "N/A", "Nenhuma recomendação gerada", 0]);
+        continue;
+      }
+
+      const priceDataForTradeDay = getPriceDataForDate(allData, tradeDate);
+
+      for (const rec of finalRecs) {
+        const priceDay = priceDataForTradeDay[rec.ticker];
+        let tradeResult = { resultado: 0, status: "NÃO EXECUTADO - SEM DADOS DO DIA" };
+        if (priceDay) {
+          tradeResult = simularTrade(rec, priceDay, CONFIG.LOTE_ACOES_BACKTEST);
+        }
+
+        backtestLog.push([backtestDateStr, rec.ticker.replace('BVMF:', ''), rec.direcao, rec.precoEntrada, tradeResult.status, tradeResult.resultado]);
+
+        if (tradeResult.status.startsWith("EXECUTADO")) {
+          allBacktestResults.push({ data: tradeDate, ticker: rec.ticker, direcao: rec.direcao, resultado: tradeResult.resultado });
+        }
       }
     }
-  });
-  resetarProgresso();
-  SpreadsheetApp.getActiveSpreadsheet().toast("Abas de dados e resultados foram limpas.");
+
+    if (backtestLog.length > 0) {
+      logSheet.getRange(logSheet.getLastRow() + 1, 1, backtestLog.length, logHeader.length).setValues(backtestLog);
+      formatarLogSheet(logSheet);
+    }
+
+    escreverResultadosBacktest(ss, allBacktestResults);
+    ss.toast("Backtest Ponto-no-Tempo concluído!", "Status", 10);
+  } catch (e) {
+    Logger.log(`ERRO FATAL em executarBacktestPontoNoTempo: ${e.message}\n${e.stack}`);
+    SpreadsheetApp.getUi().alert(`Ocorreu um erro no backtest: ${e.message}`);
+  }
 }
 
-// =================================================================
-// =================== CONFIGURAÇÕES GLOBAIS =======================
-// =================================================================
+// ===================================================================================
+// 3. MOTOR DE ANÁLISE E FUNÇÕES CORE
+// ===================================================================================
 
-const FORMULA_SEPARATOR = ';';
-const BATCH_SIZE = 4;
-const MAX_WAIT_MS = 15000;
-const POLL_MS     = 1000;
-const HARD_START_DATE = new Date(2025, 0, 1);
-const PERC_MIN = 0.2;
-const PERC_MAX = 3.0;
-const PERC_STEP = 0.1;
-const MIN_ACERTO = 60;
-const MIN_TRADES = 0;
-const EV_MIN = 0;
-const CI_LOWER_MIN = 0.50;
-const MIN_GAIN_PERCENT = 0.15; // Ganho médio mínimo para que uma recomendação seja exibida
+function motorDeAnalise(ss, allData, endDate) {
+    const header = allData[0];
+    const iDate = header.indexOf("Date");
+    const values = endDate ? allData.slice(1).filter(row => row[iDate] && new Date(row[iDate]) <= endDate) : allData.slice(1);
 
-// =================================================================
-// =================== FUNÇÃO DE ATUALIZAÇÃO DE DADOS ================
-// =================================================================
+    const iTicker = header.indexOf("Ticker");
+    const iOpen = header.indexOf("Open");
+    const iHigh = header.indexOf("High");
+    const iLow = header.indexOf("Low");
+    const iClose = header.indexOf("Close");
+
+    const byTicker = {};
+    for (const row of values) {
+        const tk = String(row[iTicker]).trim();
+        if (!tk || tk.includes("TICKER_NAO_ENCONTRADO")) continue;
+        if (!byTicker[tk]) byTicker[tk] = [];
+        byTicker[tk].push({ open: toNum(row[iOpen]), high: toNum(row[iHigh]), low: toNum(row[iLow]), close: toNum(row[iClose]) });
+    }
+
+    const statsByTicker = {};
+    for (const ticker in byTicker) {
+        const priceData = byTicker[ticker];
+        const variations = [];
+        let closeHigher = 0, closeLower = 0, closeAtHigh = 0, closeAtLow = 0;
+
+        for(let i = 1; i < priceData.length; i++) {
+            const day = priceData[i];
+            const prevDay = priceData[i-1];
+            if (isFinite(day.open) && day.open > 0 && isFinite(day.close)) {
+                variations.push((day.close - day.open) / day.open);
+            }
+            if (isFinite(day.close) && isFinite(prevDay.close)) {
+                if (day.close > prevDay.close) closeHigher++;
+                if (day.close < prevDay.close) closeLower++;
+            }
+            if (isFinite(day.close) && isFinite(day.high) && day.close === day.high) closeAtHigh++;
+            if (isFinite(day.close) && isFinite(day.low) && day.close === day.low) closeAtLow++;
+        }
+
+        const posVariations = variations.filter(v => v > 0);
+        const negVariations = variations.filter(v => v < 0);
+        statsByTicker[ticker] = {
+            avgPosVar: posVariations.length > 0 ? posVariations.reduce((a, b) => a + b, 0) / posVariations.length : 0,
+            stdDevPosVar: posVariations.length > 1 ? standardDeviation(posVariations) : 0,
+            avgNegVar: negVariations.length > 0 ? negVariations.reduce((a, b) => a + b, 0) / negVariations.length : 0,
+            stdDevNegVar: negVariations.length > 1 ? standardDeviation(negVariations) : 0,
+            closeHigher, closeLower, closeAtHigh, closeAtLow
+        };
+    }
+
+    if (!endDate) {
+      escreverPerfilEstatistico(ss, statsByTicker);
+    }
+
+    let allResults = [];
+    for (const ticker in byTicker) {
+        const priceData = byTicker[ticker];
+        if (priceData.length < 2) continue;
+        const stats = statsByTicker[ticker];
+        if (!stats || priceData.length < CONFIG.MIN_TRADES_PARA_SIGNIFICANCIA) continue;
+
+        const targetGain = (stats.avgPosVar*1.2); // AJUSTE: Alvo de ganho agora é a média, sem o DP.
+        const targetStop = Math.abs(stats.avgNegVar) + (CONFIG.DP_MULTIPLIER_STOP * stats.stdDevNegVar);
+
+        if (targetGain <= 0 || targetStop <= 0) continue;
+
+        for (const direcao of ['COMPRA', 'VENDA']) {
+            let gatilhoMax = 0;
+            if (direcao === 'COMPRA') {
+                gatilhoMax = stats.avgPosVar * 100; // AJUSTE: Gatilho máximo consistente com o novo alvo de ganho.
+            } else {
+                gatilhoMax = (Math.abs(stats.avgNegVar) + (CONFIG.DP_MULTIPLIER_STOP * stats.stdDevNegVar)) * 100;
+            }
+
+            if (gatilhoMax <= 0) continue;
+
+            for (let p = CONFIG.GATILHO_INICIAL; p <= gatilhoMax; p += CONFIG.GATILHO_STEP) {
+                const result = analisarEstrategia(priceData, p, direcao, targetGain, targetStop);
+                if (result && result.totalTrades >= CONFIG.MIN_TRADES_PARA_SIGNIFICANCIA) {
+                    allResults.push({ ticker, direcao, ...result });
+                }
+            }
+        }
+    }
+
+    const recsByTickerProfile = {};
+    for (const profileName in CONFIG.PERFIS) {
+        const perfilConfig = CONFIG.PERFIS[profileName];
+        recsByTickerProfile[profileName] = {};
+        const qualifiedRecs = allResults.filter(r => r.expectedValue >= perfilConfig.MIN_EXPECTED_VALUE && r.probS1 >= perfilConfig.MIN_PROB_S1);
+        for (const rec of qualifiedRecs) {
+            const key = `${rec.ticker}|${rec.direcao}`;
+            if (!recsByTickerProfile[profileName][key] || rec[perfilConfig.OTIMIZAR_POR] > recsByTickerProfile[profileName][key][perfilConfig.OTIMIZAR_POR]) {
+                const priceData = byTicker[rec.ticker];
+                const lastClose = priceData[priceData.length - 1].close;
+                const entryPrice = rec.direcao === 'COMPRA' ? lastClose * (1 - rec.gatilhoPercent / 100) : lastClose * (1 + rec.gatilhoPercent / 100);
+                recsByTickerProfile[profileName][key] = {...rec, precoEntrada: entryPrice, alvoGanho: rec.avgS1Profit, stopLoss: rec.maxDrawdown};
+            }
+        }
+    }
+
+    return { allResults, byTicker, recsByTickerProfile };
+}
+
+function analisarEstrategia(priceData, gatilhoPercent, direcao, targetGain, targetStop) {
+  let cenario1 = 0, cenario2 = 0, cenario3 = 0;
+  for (let i = 1; i < priceData.length; i++) {
+    const prevDay = priceData[i - 1];
+    const day = priceData[i];
+    if (!isFinite(prevDay.close) || prevDay.close <= 0) continue;
+    let entryPrice = 0;
+    if (direcao === 'COMPRA') {
+      entryPrice = prevDay.close * (1 - gatilhoPercent / 100);
+      if (day.low <= entryPrice) {
+        const profitTargetPrice = entryPrice * (1 + targetGain);
+        const stopLossPrice = entryPrice * (1 - targetStop);
+        if (day.low <= stopLossPrice) cenario3++;
+        else if (day.high >= profitTargetPrice) cenario1++;
+        else cenario2++;
+      }
+    } else {
+      entryPrice = prevDay.close * (1 + gatilhoPercent / 100);
+      if (day.high >= entryPrice) {
+        const profitTargetPrice = entryPrice * (1 - targetGain);
+        const stopLossPrice = entryPrice * (1 + targetStop);
+        if (day.high >= stopLossPrice) cenario3++;
+        else if (day.low <= profitTargetPrice) cenario1++;
+        else cenario2++;
+      }
+    }
+  }
+  const totalTrades = cenario1 + cenario2 + cenario3;
+  if (totalTrades === 0) return null;
+  const probS1 = cenario1 / totalTrades;
+  const probS3 = cenario3 / totalTrades;
+  const expectedValue = (probS1 * targetGain) - (probS3 * targetStop);
+  const score = expectedValue * probS1;
+  return {
+    gatilhoPercent, totalTrades, probS1, probS2: cenario2 / totalTrades, probS3,
+    maxDrawdown: targetStop, avgS1Profit: targetGain, expectedValue, score
+  };
+}
+
+function simularTrade(rec, priceDay, lote) {
+  let resultado = 0;
+  let status = "NÃO EXECUTADO: Gatilho de entrada não atingido";
+  if (rec.direcao === 'COMPRA') {
+    if (priceDay.low <= rec.precoEntrada) {
+      const alvoDeGanhoAbs = rec.precoEntrada * (1 + rec.alvoGanho);
+      const stopLossAbs = rec.precoEntrada * (1 - rec.stopLoss);
+      if (priceDay.low <= stopLossAbs) {
+        resultado = (stopLossAbs - rec.precoEntrada) * lote;
+        status = `EXECUTADO - PREJUÍZO`;
+      } else if (priceDay.high >= alvoDeGanhoAbs) {
+        resultado = (alvoDeGanhoAbs - rec.precoEntrada) * lote;
+        status = `EXECUTADO - LUCRO`;
+      } else {
+        resultado = (priceDay.close - rec.precoEntrada) * lote;
+        status = `EXECUTADO - NEUTRO (Saída no Fechamento)`;
+      }
+    }
+  } else {
+    if (priceDay.high >= rec.precoEntrada) {
+      const alvoDeGanhoAbs = rec.precoEntrada * (1 - rec.alvoGanho);
+      const stopLossAbs = rec.precoEntrada * (1 + rec.stopLoss);
+      if (priceDay.high >= stopLossAbs) {
+        resultado = (rec.precoEntrada - stopLossAbs) * lote;
+        status = `EXECUTADO - PREJUÍZO`;
+      } else if (priceDay.low <= alvoDeGanhoAbs) {
+        resultado = (rec.precoEntrada - alvoDeGanhoAbs) * lote;
+        status = `EXECUTADO - LUCRO`;
+      } else {
+        resultado = (rec.precoEntrada - priceDay.close) * lote;
+        status = `EXECUTADO - NEUTRO (Saída no Fechamento)`;
+      }
+    }
+  }
+  return {resultado, status};
+}
+
+// ===================================================================================
+// 4. FUNÇÕES DE ESCRITA E FORMATAÇÃO
+// ===================================================================================
+
+function escreverResultadosAnalise(ss, recs) {
+  escreverTodasRecomendacoes(ss, recs.allResults);
+  for (const profileName in CONFIG.PERFIS) {
+      escreverRecomendacoesPorPerfil(ss, recs.recsByTickerProfile[profileName], recs.byTicker, profileName);
+  }
+}
+
+function escreverPerfilEstatistico(ss, statsByTicker) {
+    const sheet = upsertSheet(ss, CONFIG.NOME_ABA_PERFIL_ESTATISTICO);
+    sheet.clear();
+    const header = ["Ticker", "Média Alta (%)", "DP Altas (%)", "Média Baixa (%)", "DP Baixas (%)", "# Fechou Acima Anterior", "# Fechou Abaixo Anterior", "# Fechou na Máxima", "# Fechou na Mínima"];
+    sheet.appendRow(header);
+    sheet.getRange(1, 1, 1, header.length).setFontWeight("bold");
+
+    const rows = Object.keys(statsByTicker).map(ticker => {
+        const stats = statsByTicker[ticker];
+        return [
+            ticker.replace('BVMF:', ''),
+            stats.avgPosVar,
+            stats.stdDevPosVar,
+            stats.avgNegVar,
+            stats.stdDevNegVar,
+            stats.closeHigher,
+            stats.closeLower,
+            stats.closeAtHigh,
+            stats.closeAtLow
+        ];
+    });
+    if (rows.length > 0) {
+        sheet.getRange(2, 1, rows.length, header.length).setValues(rows);
+        sheet.getRange('B:E').setNumberFormat("0.00%");
+        sheet.getRange('F:I').setNumberFormat("0");
+        sheet.autoResizeColumns(1, header.length);
+    }
+}
+
+function escreverTodasRecomendacoes(ss, allResults) {
+  const sheet = upsertSheet(ss, "Todas_Recomendacoes");
+  sheet.clear();
+  const header = ["Ticker", "Direção", "Score", "Gatilho (%)", "EV (%)", "% Alvo Ganho", "% Stop Loss", "Prob. Ganho (%)", "Trades Totais"];
+  sheet.appendRow(header);
+  sheet.getRange(1, 1, 1, header.length).setFontWeight("bold");
+  if (allResults.length === 0) { sheet.getRange("A2").setValue("Nenhum resultado."); return; }
+  allResults.sort((a, b) => b.score - a.score);
+  const rows = allResults.map(rec => [rec.ticker.replace('BVMF:', ''), rec.direcao, rec.score, rec.gatilhoPercent / 100, rec.expectedValue, rec.avgS1Profit, rec.maxDrawdown, rec.probS1, rec.totalTrades]);
+  sheet.getRange(2, 1, rows.length, header.length).setValues(rows);
+  sheet.getRange('C:C').setNumberFormat("0.0000");
+  sheet.getRange('D:H').setNumberFormat("0.00%");
+  sheet.getRange('I:I').setNumberFormat("0");
+  sheet.autoResizeColumns(1, header.length);
+}
+
+function escreverRecomendacoesPorPerfil(ss, recsByTicker, byTicker, profileName) {
+  const perfilConfig = CONFIG.PERFIS[profileName];
+  const sheet = upsertSheet(ss, perfilConfig.SHEET_NAME);
+  sheet.clear();
+  const header = ["Ticker", "Direção", "Preço Entrada", "% Alvo Ganho", "% Stop Loss", "Score", "Gatilho (%)", "Fech. Anterior", "Prob. Ganho (%)", "Trades Totais", "EV (%)"];
+  sheet.appendRow(header);
+  sheet.getRange(1, 1, 1, header.length).setFontWeight("bold");
+  const finalRecs = Object.values(recsByTicker).sort((a, b) => b[perfilConfig.OTIMIZAR_POR] - a[perfilConfig.OTIMIZAR_POR]);
+  if (finalRecs.length === 0) { sheet.getRange("A2").setValue("Nenhuma recomendação encontrada."); return; }
+  const rows = finalRecs.map(rec => {
+    const priceData = byTicker[rec.ticker];
+    const lastClose = priceData[priceData.length - 1].close;
+    return [rec.ticker.replace('BVMF:', ''), rec.direcao,  rec.precoEntrada, rec.avgS1Profit, rec.maxDrawdown, rec.score, rec.gatilhoPercent / 100, lastClose, rec.probS1, rec.totalTrades, rec.expectedValue];
+  });
+  sheet.getRange(2, 1, rows.length, header.length).setValues(rows);
+  sheet.getRange('C:C').setNumberFormat("R$ #,##0.00");
+  sheet.getRange('D:E').setNumberFormat("0.00%");
+  sheet.getRange('F:F').setNumberFormat("0.0000");
+  sheet.getRange('G:G').setNumberFormat("0.00%");
+  sheet.getRange('H:H').setNumberFormat("R$ #,##0.00");
+  sheet.getRange('I:I').setNumberFormat("0.00%");
+  sheet.getRange('K:K').setNumberFormat("0.00%");
+  rows.forEach((row, index) => {
+    const range = sheet.getRange(index + 2, 1, 1, header.length);
+    if (row[1] === 'COMPRA') range.setBackground('#d9ead3');
+    else if (row[1] === 'VENDA') range.setBackground('#f4cccc');
+  });
+  sheet.autoResizeColumns(1, header.length);
+}
+
+function escreverResultadosBacktest(ss, allBacktestResults) {
+    const sheet = upsertSheet(ss, "Backtest_Resultados_PiT");
+    sheet.clear();
+    const header = ["Data", "Ticker", "Direção", "Resultado (R$)"];
+    sheet.appendRow(header);
+    sheet.getRange(1, 1, 1, header.length).setFontWeight("bold");
+    if (allBacktestResults.length > 0) {
+        allBacktestResults.sort((a, b) => new Date(a.data) - new Date(b.data));
+        const rows = allBacktestResults.map(r => [Utilities.formatDate(r.data, ss.getSpreadsheetTimeZone(), "yyyy-MM-dd"), r.ticker.replace('BVMF:', ''), r.direcao, r.resultado]);
+        sheet.getRange(2, 1, rows.length, header.length).setValues(rows);
+        const total = allBacktestResults.reduce((sum, r) => sum + r.resultado, 0);
+        sheet.getRange("F1").setValue("Resultado Total:").setFontWeight("bold");
+        sheet.getRange("G1").setValue(total).setNumberFormat('R$ #,##0.00');
+        sheet.getRange("D:D").setNumberFormat('R$ #,##0.00');
+        sheet.autoResizeColumns(1, header.length);
+    } else {
+        sheet.getRange("A2").setValue("Nenhum trade foi executado no período do backtest.");
+    }
+}
+
+function formatarLogSheet(sheet) {
+    sheet.getRange('D:D').setNumberFormat("R$ #,##0.00");
+    sheet.getRange('F:F').setNumberFormat('R$ #,##0.00');
+    sheet.autoResizeColumns(1, sheet.getLastColumn());
+}
+
+// ===================================================================================
+// 5. FUNÇÕES UTILITÁRIAS
+// ===================================================================================
+
+function getPriceDataForDate(allData, date) {
+    const header = allData[0];
+    const iDate = header.indexOf("Date");
+    const iTicker = header.indexOf("Ticker");
+    const dateStr = Utilities.formatDate(date, SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone(), "yyyy-MM-dd");
+    const prices = {};
+    allData.slice(1).forEach(row => {
+        if (row[iDate] && Utilities.formatDate(new Date(row[iDate]), SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone(), "yyyy-MM-dd") === dateStr) {
+            prices[row[iTicker]] = { open: toNum(row[header.indexOf("Open")]), high: toNum(row[header.indexOf("High")]), low: toNum(row[header.indexOf("Low")]), close: toNum(row[header.indexOf("Close")]) };
+        }
+    });
+    return prices;
+}
 
 function atualizarDadosDiarios() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const properties = PropertiesService.getUserProperties();
   const lastIndexStr = properties.getProperty('lastProcessedTickerIndex') || '0';
   let lastIndex = parseInt(lastIndexStr, 10);
-  const tz = ss.getSpreadsheetTimeZone();
 
-  let tickersSh = ss.getSheetByName("TICKERS");
-  if (!tickersSh) {
-    tickersSh = ss.insertSheet("TICKERS");
-    tickersSh.getRange("A1:B1").setValues([["Ticker", "<- Adicione seus tickers na Coluna A, a partir da linha 2"]]);
-    tickersSh.getRange("A2").setValue("EXEMPLO: PETR4");
-    tickersSh.autoResizeColumn(1);
-    tickersSh.autoResizeColumn(2);
-    ss.toast("Aba 'TICKERS' não encontrada. Criei uma para você. Adicione suas ações e rode novamente.");
+  const ativosSh = ss.getSheetByName(CONFIG.NOME_ABA_TICKERS);
+  if (!ativosSh) {
+    SpreadsheetApp.getUi().alert(`Aba de tickers '${CONFIG.NOME_ABA_TICKERS}' não encontrada.`);
     return false;
   }
-
-  const allTickers = tickersSh.getRange(2, 1, tickersSh.getLastRow() - 1, 1).getValues().flat()
-    .map(x => String(x || "").trim()).filter(Boolean);
-
-  if (!allTickers.length) {
-    ss.toast("Nenhum ticker válido encontrado em 'TICKERS'.");
+  const allTickers = ativosSh.getRange("A2:A").getValues().flat().filter(String);
+  if (allTickers.length === 0) {
+    SpreadsheetApp.getUi().alert(`Nenhum ticker encontrado na aba '${CONFIG.NOME_ABA_TICKERS}'.`);
     return true;
   }
 
   if (lastIndex >= allTickers.length) {
-    ss.toast("Todos os tickers já foram processados. A atualização de hoje está completa.");
+    ss.toast("Todos os tickers já foram processados.");
     properties.deleteProperty('lastProcessedTickerIndex');
     return true;
   }
 
-  const tickersToProcess = allTickers.slice(lastIndex, lastIndex + BATCH_SIZE);
-  ss.toast(`Processando lote: ${lastIndex + 1} a ${lastIndex + tickersToProcess.length} de ${allTickers.length} tickers.`);
+  const tickersToProcess = allTickers.slice(lastIndex, lastIndex + CONFIG.BATCH_SIZE);
+  ss.toast(`Processando lote: ${lastIndex + 1} a ${lastIndex + tickersToProcess.length} de ${allTickers.length}...`, "Status", -1);
 
-  let dadosSh = upsertSheet(ss, "Dados diários");
-  if (dadosSh.getLastRow() < 1) {
-    dadosSh.appendRow(["Ticker", "Date", "Open", "High", "Low", "Close", "Var%"]);
+  const dadosSh = upsertSheet(ss, CONFIG.NOME_ABA_DADOS);
+  if (lastIndex === 0) {
+    dadosSh.clear();
+    dadosSh.appendRow(["Ticker", "Date", "Open", "High", "Low", "Close"]);
     SpreadsheetApp.flush();
   }
 
-  const lastDates = {};
-  const values = dadosSh.getDataRange().getValues();
-  if (values.length > 1) {
-    const header = values[0];
-    const tickerIdxHeader = header.indexOf("Ticker");
-    const dateIdxHeader = header.indexOf("Date");
-
-    if (tickerIdxHeader !== -1 && dateIdxHeader !== -1) {
-      for (let i = 1; i < values.length; i++) {
-        const ticker = values[i][tickerIdxHeader];
-        const date = toDate(values[i][dateIdxHeader]);
-        if (ticker && date) {
-          const cleanTicker = removeBVMF(ticker);
-          if (!lastDates[cleanTicker] || date > lastDates[cleanTicker]) {
-            lastDates[cleanTicker] = date;
-          }
-        }
-      }
-    }
-  }
-
-  const hoje = new Date();
-  const ontem = new Date(hoje.getTime() - 24 * 3600 * 1000);
-  const rowsToWrite = [];
-  const tmpName = `_TMP_DATA_FETCH_${Utilities.getUuid().slice(0,8)}`;
+  const tmpName = `_TMP_BATCH_${Utilities.getUuid().slice(0, 8)}`;
   const tmp = ss.insertSheet(tmpName);
+  const rowsToWrite = [];
 
   try {
-    for (const fullTicker of tickersToProcess) {
-      const cleanTicker = removeBVMF(fullTicker);
-      let startDate = HARD_START_DATE;
-      if (lastDates[cleanTicker]) {
-        const nextDay = new Date(lastDates[cleanTicker].getTime());
-        nextDay.setDate(nextDay.getDate() + 1);
-        startDate = nextDay;
-      }
+    // 1. Inserir fórmulas em paralelo
+    tickersToProcess.forEach((ticker, idx) => {
+      const dataInicio = new Date(2025, 0, 2);
+      const formula = `=GOOGLEFINANCE("${ticker}"; "all"; DATE(${dataInicio.getFullYear()};${dataInicio.getMonth()+1};${dataInicio.getDate()}); TODAY())`;
+      tmp.getRange(1, idx * 7 + 1).setFormula(formula);
+    });
 
-      // *** LÓGICA DE DATA CORRIGIDA PARA EVITAR ERROS DE FUSO HORÁRIO ***
-      const ontemStr = Utilities.formatDate(ontem, tz, 'yyyy-MM-dd');
-      const startDateStr = Utilities.formatDate(startDate, tz, 'yyyy-MM-dd');
+    SpreadsheetApp.flush();
 
-      if (startDateStr > ontemStr) continue;
+    // 2. Aguardar o carregamento dos dados
+    let waited = 0;
+    const pollInterval = 2000;
+    while (waited < CONFIG.MAX_WAIT_MS) {
+      Utilities.sleep(pollInterval);
+      waited += pollInterval;
 
-      tmp.clear();
-      SpreadsheetApp.flush();
-
-      const date1 = `DATEVALUE("${startDateStr}")`;
-      const date2 = `DATEVALUE("${ontemStr}")`;
-      const sep = FORMULA_SEPARATOR;
-      const formula = `=GOOGLEFINANCE("${fullTicker}"${sep}"all"${sep}${date1}${sep}${date2}${sep}"DAILY")`;
-
-      tmp.getRange(1, 1).setFormula(formula);
-      SpreadsheetApp.flush();
-
-      let waited = 0;
-      let all = [];
-      while (waited < MAX_WAIT_MS) {
-        Utilities.sleep(POLL_MS);
-        waited += POLL_MS;
-        all = tmp.getDataRange().getValues();
-        if (all.length > 1 && all[0].length > 1) {
-            const maybe = all[1];
-            if (maybe && (isDateLike(maybe[0]) || typeof maybe[1] === "number")) break;
-        } else if (all.length === 1 && all[0][0] && String(all[0][0]).includes("#N/A")) break;
-      }
-
-      if (!all || all.length < 2 || (all[0][0] && String(all[0][0]).includes("#N/A"))) continue;
-
-      const headerResult = all[0].map(h => (h || "").toString().toLowerCase());
-      const dateHIdx  = headerResult.findIndex(h => h.indexOf("date")!==-1 || h.indexOf("data")!==-1);
-      const openHIdx  = headerResult.findIndex(h => h.indexOf("open")!==-1);
-      const highHIdx  = headerResult.findIndex(h => h.indexOf("high")!==-1);
-      const lowHIdx   = headerResult.findIndex(h => h.indexOf("low")!==-1);
-      const closeHIdx = headerResult.findIndex(h => h.indexOf("close")!==-1);
-      const lastIdx = findLastRowIndex(all, [dateHIdx, closeHIdx]);
-
-      if (lastIdx < 1) continue;
-
-      for (let r = 1; r <= lastIdx; r++) {
-        const row = all[r] || [];
-        const dateVal = row[dateHIdx];
-        if (!dateVal) continue;
-        const dateObj = toDate(dateVal);
-        if (!dateObj) continue;
-        if (lastDates[cleanTicker] && dateObj.getTime() <= lastDates[cleanTicker].getTime()) continue;
-        const open = toNum(row[openHIdx]);
-        const high = toNum(row[highHIdx]);
-        const low  = toNum(row[lowHIdx]);
-        const close= toNum(row[closeHIdx]);
-        if (isNaN(close)) continue;
-        const varPct = (!isNaN(open) && open !== 0) ? ((close - open) / open) : 0;
-        rowsToWrite.push([cleanTicker, dateObj, open, high, low, close, varPct]);
-      }
+      let allLoaded = true;
+      tickersToProcess.forEach((_, idx) => {
+        const val = tmp.getRange(2, idx * 7 + 1).getValue();
+        if (val === "" || val === "#N/A" || String(val).includes("Loading")) {
+          // Se for #N/A, pode ser erro real ou ainda carregando.
+          // No GoogleFinance, as vezes o erro demora a aparecer.
+          if (val === "" || String(val).includes("Loading")) allLoaded = false;
+        }
+      });
+      if (allLoaded) break;
     }
-  } catch(err) {
-      ss.toast("Ocorreu um erro. Verifique os Logs (Extensões > Apps Script > Registros).");
-      properties.deleteProperty('lastProcessedTickerIndex');
-      throw err;
+
+    // 3. Coletar os dados
+    tickersToProcess.forEach((ticker, idx) => {
+      const dataRange = tmp.getRange(1, idx * 7 + 1).getDataRegion();
+      const data = dataRange.getValues();
+
+      if (data.length > 1 && data[0][0] !== '#N/A' && !String(data[0][0]).includes("Error")) {
+        // Mapear colunas (Date, Open, High, Low, Close)
+        const header = data[0].map(h => String(h).toLowerCase());
+        const iD = header.indexOf("date");
+        const iO = header.indexOf("open");
+        const iH = header.indexOf("high");
+        const iL = header.indexOf("low");
+        const iC = header.indexOf("close");
+
+        if (iD !== -1 && iC !== -1) {
+          for (let r = 1; r < data.length; r++) {
+            if (data[r][iD] instanceof Date) {
+               rowsToWrite.push([ticker, data[r][iD], data[r][iO], data[r][iH], data[r][iL], data[r][iC]]);
+            }
+          }
+        }
+      } else {
+        Logger.log(`Nenhum dado retornado para ${ticker} neste lote.`);
+      }
+    });
+
+  } catch (e) {
+    Logger.log(`Erro no lote: ${e.message}`);
+    throw e;
   } finally {
-      try { ss.deleteSheet(tmp); } catch(e) { /* ignore */ }
+    ss.deleteSheet(tmp);
   }
 
   if (rowsToWrite.length > 0) {
-    const targetRange = dadosSh.getRange(dadosSh.getLastRow() + 1, 1, rowsToWrite.length, 7);
-    targetRange.setValues(rowsToWrite);
-    targetRange.offset(0, 1, rowsToWrite.length, 1).setNumberFormat("yyyy-MM-dd");
-    targetRange.offset(0, 6, rowsToWrite.length, 1).setNumberFormat("0.00%");
-    const dataRangeToSort = dadosSh.getRange(2, 1, dadosSh.getLastRow() - 1, dadosSh.getLastColumn());
-    dataRangeToSort.sort([{column: 1, ascending: true}, {column: 2, ascending: true}]);
+    dadosSh.getRange(dadosSh.getLastRow() + 1, 1, rowsToWrite.length, rowsToWrite[0].length).setValues(rowsToWrite);
+    dadosSh.getRange("C:F").setNumberFormat("#,##0.00");
   }
 
   const newIndex = lastIndex + tickersToProcess.length;
   if (newIndex >= allTickers.length) {
     properties.deleteProperty('lastProcessedTickerIndex');
-    ss.toast(`Lote final concluído! Total de ${allTickers.length} tickers processados.`);
+    ss.toast("Atualização de dados concluída!", "Status", 10);
     return true;
   } else {
-    properties.setProperty('lastProcessedTickerIndex', newIndex);
-    ss.toast(`Lote concluído. ${newIndex} de ${allTickers.length} tickers processados. Execute novamente para continuar.`);
+    properties.setProperty('lastProcessedTickerIndex', String(newIndex));
+    ss.toast(`Lote concluído (${newIndex}/${allTickers.length}). Execute novamente para continuar.`, "Status", 5);
     return false;
   }
 }
 
-
-function gerarParametrosERecomendacoes() {
+function limparDadosAntigos() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheetDados = ss.getSheetByName("Dados diários");
-  if (!sheetDados) {
-    ss.toast("ERRO: Aba 'Dados diários' não encontrada. Execute a atualização primeiro.");
-    throw new Error("Aba 'Dados diários' não encontrada.");
+  const sheet = ss.getSheetByName(CONFIG.NOME_ABA_DADOS);
+  if (!sheet || sheet.getLastRow() < 2) return;
+  const data = sheet.getDataRange().getValues();
+  const header = data.shift();
+  const iDate = header.indexOf("Date");
+  const dataLimite = new Date(2025, 0, 2);
+  const dadosMantidos = data.filter(row => row[iDate] && new Date(row[iDate]) >= dataLimite);
+  sheet.clearContents();
+  sheet.getRange(1, 1, 1, header.length).setValues([header]);
+  if (dadosMantidos.length > 0) {
+    sheet.getRange(2, 1, dadosMantidos.length, header.length).setValues(dadosMantidos);
   }
-
-  const values = sheetDados.getDataRange().getValues();
-  if (values.length < 2) {
-    ss.toast("Nenhum dado para analisar na aba 'Dados diários'.");
-    return;
-  }
-
-  const header = values[0];
-  const iTicker = header.indexOf("Ticker");
-  const iDate   = header.indexOf("Date");
-  const iOpen   = header.indexOf("Open");
-  const iHigh   = header.indexOf("High");
-  const iLow    = header.indexOf("Low");
-  const iClose  = header.indexOf("Close");
-  if ([iTicker,iDate,iOpen,iHigh,iLow,iClose].some(i => i === -1)) {
-    throw new Error("Cabeçalho inválido em 'Dados diários'.");
-  }
-
-  const byTicker = {};
-  for (let r = 1; r < values.length; r++) {
-    const row = values[r];
-    const tk = String(row[iTicker]).trim();
-    if (!tk) continue;
-    if (!byTicker[tk]) byTicker[tk] = [];
-    byTicker[tk].push({
-      date: toDate(row[iDate]), open: toNum(row[iOpen]),
-      high: toNum(row[iHigh]), low:  toNum(row[iLow]),
-      close:toNum(row[iClose])
-    });
-  }
-  Object.keys(byTicker).forEach(tk => {
-    byTicker[tk] = byTicker[tk]
-      .filter(c => c.date && isFinite(c.close) && isFinite(c.high) && isFinite(c.low))
-      .sort((a,b) => a.date - b.date);
-  });
-
-  const resultados = [];
-  const comprasRecomendadas = [];
-  const vendasRecomendadas = [];
-
-  for (const tk of Object.keys(byTicker)) {
-    const candles = byTicker[tk];
-    if (candles.length < 2) continue;
-
-    let bestBuy = {p:0, acerto:0, trades:0, ganho:0, ev:0, ciL:0};
-    let bestSell= {p:0, acerto:0, trades:0, ganho:0, ev:0, ciL:0};
-
-    for (let p = PERC_MIN; p <= PERC_MAX + 1e-9; p += PERC_STEP) {
-      let compTrades=0, compWins=0, compSumSigned=0, compWinSum=0, compLossSumAbs=0;
-      let vendTrades=0, vendWins=0, vendSumSigned=0, vendWinSum=0, vendLossSumAbs=0;
-
-      for (let i = 1; i < candles.length; i++) {
-        const prevClose = candles[i-1].close;
-        const {high, low, close} = candles[i];
-        if (!isFinite(prevClose) || prevClose === 0) continue;
-
-        const buyEntry = prevClose * (1 - p/100);
-        if (low <= buyEntry && buyEntry > 0) {
-          compTrades++;
-          const retPct = ((close - buyEntry) / buyEntry) * 100;
-          compSumSigned += retPct;
-          if (retPct > 0) { compWins++; compWinSum += retPct; }
-          else { compLossSumAbs += -retPct; }
-        }
-
-        const sellEntry = prevClose * (1 + p/100);
-        if (high >= sellEntry && sellEntry > 0) {
-          vendTrades++;
-          const retPct = ((sellEntry - close) / sellEntry) * 100;
-          vendSumSigned += retPct;
-          if (retPct > 0) { vendWins++; vendWinSum += retPct; }
-          else { vendLossSumAbs += -retPct; }
-        }
-      }
-
-      const compAcc   = compTrades ? (compWins/compTrades)*100 : 0;
-      const vendAcc   = vendTrades ? (vendWins/vendTrades)*100 : 0;
-      const compGain  = compTrades ? compSumSigned/compTrades : 0;
-      const vendGain  = vendTrades ? vendSumSigned/ vendTrades : 0;
-
-      const numCompLosses = compTrades - compWins;
-      const compAvgWin  = compWins > 0 ? (compWinSum/compWins) : 0;
-      const compAvgLoss = numCompLosses > 0 ? (compLossSumAbs / numCompLosses) : 0;
-
-      const numVendLosses = vendTrades - vendWins;
-      const vendAvgWin  = vendWins > 0 ? (vendWinSum/vendWins) : 0;
-      const vendAvgLoss = numVendLosses > 0 ? (vendLossSumAbs / numVendLosses) : 0;
-
-      const compEV  = compTrades > 0 ? ((compWins/compTrades)*compAvgWin - (numCompLosses/compTrades)*compAvgLoss) : 0;
-      const vendEV  = vendTrades > 0 ? ((vendWins/vendTrades)*vendAvgWin - (numVendLosses/vendTrades)*vendAvgLoss) : 0;
-
-      const compCiL = compTrades ? wilsonLower(compWins, compTrades) : 0;
-      const vendCiL = vendTrades ? wilsonLower(vendWins, vendTrades) : 0;
-
-      if (compAcc > bestBuy.acerto || (compAcc === bestBuy.acerto && compGain > bestBuy.ganho)) {
-        bestBuy = {p, acerto:compAcc, trades:compTrades, ganho:compGain, ev:compEV, ciL:compCiL};
-      }
-      if (vendAcc > bestSell.acerto || (vendAcc === bestSell.acerto && vendGain > bestSell.ganho)) {
-        bestSell = {p, acerto:vendAcc, trades:vendTrades, ganho:vendGain, ev:vendEV, ciL:vendCiL};
-      }
-    }
-
-    const plainTk = removeBVMF(tk);
-    resultados.push([
-      plainTk,
-      round2(bestBuy.p), round2(bestBuy.acerto), bestBuy.trades, round2(bestBuy.ganho), round2(bestBuy.ev), round2(bestBuy.ciL*100),
-      round2(bestSell.p), round2(bestSell.acerto), bestSell.trades, round2(bestSell.ganho), round2(bestSell.ev), round2(bestSell.ciL*100)
-    ]);
-
-    if (candles.length >= 1) {
-      const prevClose = candles[candles.length - 1].close;
-      const buyEntry  = prevClose * (1 - bestBuy.p/100);
-      const buyTarget = buyEntry * (1 + bestBuy.ganho/100);
-      const sellEntry = prevClose * (1 + bestSell.p/100);
-      const sellTarget= sellEntry * (1 - bestSell.ganho/100);
-
-      if (bestBuy.trades >= MIN_TRADES && bestBuy.acerto >= MIN_ACERTO && bestBuy.ev > EV_MIN && bestBuy.ciL > CI_LOWER_MIN && bestBuy.ganho > MIN_GAIN_PERCENT) {
-        comprasRecomendadas.push([plainTk, "COMPRA", round2(bestBuy.p), round2(prevClose), round2(buyEntry), round2(bestBuy.acerto), round2(bestBuy.ganho), round2(bestBuy.ev), round2(bestBuy.ciL*100), round2(buyTarget)]);
-      }
-      if (bestSell.trades >= MIN_TRADES && bestSell.acerto >= MIN_ACERTO && bestSell.ev > EV_MIN && bestSell.ciL > CI_LOWER_MIN && bestSell.ganho > MIN_GAIN_PERCENT) {
-        vendasRecomendadas.push([plainTk, "VENDA",  round2(bestSell.p), round2(prevClose), round2(sellEntry), round2(bestSell.acerto), round2(bestSell.ganho), round2(bestSell.ev), round2(bestSell.ciL*100), round2(sellTarget)]);
-      }
-    }
-  }
-
-  const shP = upsertSheet(ss, "Parametros_por_Ticker");
-  shP.clear();
-  shP.appendRow(["Ticker","Melhor_Param_Compra(%)","Taxa_Acerto_Compra(%)","Trades_Compra","#Ganho_Médio_Compra(%)","EV_Compra(%)","IC95_L_Compra(%)","Melhor_Param_Venda(%)","Taxa_Acerto_Venda(%)","Trades_Venda","#Ganho_Médio_Venda(%)","EV_Venda(%)","IC95_L_Venda(%)"]);
-  if (resultados.length) {
-    shP.getRange(2,1,resultados.length,resultados[0].length).setValues(resultados);
-    shP.autoResizeColumns(1,13);
-  }
-
-  const shR = upsertSheet(ss, "Recomendacoes_diarias");
-  shR.clear();
-  shR.appendRow(["Ticker","Direção","Gatilho(%)","Fech. Anterior","Entrada","Acerto(%)","Ganho_Médio(%)","EV(%)","IC95_L(%)","Alvo"]);
-  if (recomends.length){
-    // Ordena por Ganho (%) descendente
-    recomends.sort((a, b) => b[6] - a[6]);
-
-    shR.getRange(2,1,recomends.length,recomends[0].length).setValues(recomends);
-
-    // Aplica formatação de números
-    shR.getRange('C2:C').setNumberFormat("0.0\"%\"");
-    shR.getRange('D2:E').setNumberFormat("R$ #,##0.00");
-    shR.getRange('F2:I').setNumberFormat("0.00\"%\"");
-    shR.getRange('J2:J').setNumberFormat("R$ #,##0.00");
-
-    // Aplica formatação condicional de cor
-    for (let i=0; i<recomends.length; i++){
-      const dir = recomends[i][1];
-      shR.getRange(i+2, 1, 1, 10).setBackground(dir === "COMPRA" ? "#e6f4ea" : "#fce8e6");
-    }
-    shR.autoResizeColumns(1,10);
-  }
-  SpreadsheetApp.getActiveSpreadsheet().toast("Parâmetros e Recomendações gerados!");
 }
 
-/* ================== helpers ================== */
+function upsertSheet(ss, sheetName) {
+  let sheet = ss.getSheetByName(sheetName);
+  if (sheet) {
+    return sheet;
+  }
+  return ss.insertSheet(sheetName);
+}
 
-function removeBVMF(s) { return String(s||"").replace(/^BVMF:/i,"").trim(); }
-function isDateLike(v) { if (!v) return false; if (v instanceof Date && !isNaN(v.getTime())) return true; const d = new Date(v); return !isNaN(d.getTime()); }
-function findLastRowIndex(allRows, colIndices) {for (let r = allRows.length - 1; r >= 1; r--) {for (let ci of colIndices) {if (allRows[r] && allRows[r][ci] !== undefined && allRows[r][ci] !== "") return r;}}return 0;}
-function toDate(v){if (v instanceof Date) return v; const d = new Date(v); return isNaN(d.getTime()) ? null : d;}
-function toNum(v){const n = Number(v); return isFinite(n) ? n : NaN;}
-function round2(x){ const n = parseFloat(String(x).replace(",", ".")); if (isNaN(n)) return x; return Math.round(n*100)/100; }
-function upsertSheet(ss, name){return ss.getSheetByName(name) || ss.insertSheet(name);}
-function wilsonLower(wins, n, z = 1.96){if (!n) return 0;const p = wins/n;const z2 = z*z;const denom = 1 + z2/n;const center = p + z2/(2*n);const margin = z * Math.sqrt((p*(1-p) + z2/(4*n))/n);return Math.max(0, (center - margin)/denom);}
+function toNum(value) {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    const parsed = parseFloat(value.replace(',', '.'));
+    return isNaN(parsed) ? 0 : parsed;
+  }
+  return 0;
+}
+
+function standardDeviation(arr) {
+  if (arr.length < 2) return 0;
+  const mean = arr.reduce((acc, val) => acc + val, 0) / arr.length;
+  const variance = arr.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / (arr.length - 1);
+  return Math.sqrt(variance);
+}
