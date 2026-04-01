@@ -37,12 +37,6 @@ const CONFIG = {
 
   // --- Perfis de Risco e Otimização ---
   PERFIS: {
-    CONSERVADOR: {
-      SHEET_NAME: "Recomendacoes_Conservador",
-      MIN_EXPECTED_VALUE: 0.01,
-      MIN_PROB_S1: 0.80,
-      OTIMIZAR_POR: 'score'
-    },
     AGRESSIVO: {
       SHEET_NAME: "Recomendacoes_Agressivo",
       MIN_EXPECTED_VALUE: 0.005,
@@ -435,7 +429,8 @@ function escreverRecomendacoesPorPerfil(ss, recsByTicker, byTicker, profileName)
   const header = ["Ticker", "Direção", "Preço Entrada", "% Alvo Ganho", "% Stop Loss", "Score", "Gatilho (%)", "Fech. Anterior", "Prob. Ganho (%)", "Trades Totais", "EV (%)"];
   sheet.appendRow(header);
   sheet.getRange(1, 1, 1, header.length).setFontWeight("bold");
-  const finalRecs = Object.values(recsByTicker).sort((a, b) => b[perfilConfig.OTIMIZAR_POR] - a[perfilConfig.OTIMIZAR_POR]);
+  // Ordena alfabeticamente por ticker
+  const finalRecs = Object.values(recsByTicker).sort((a, b) => a.ticker.localeCompare(b.ticker));
   if (finalRecs.length === 0) { sheet.getRange("A2").setValue("Nenhuma recomendação encontrada."); return; }
   const rows = finalRecs.map(rec => {
     const priceData = byTicker[rec.ticker];
