@@ -46,9 +46,9 @@ def main():
     total_margin = sum(p.get('margin_used', 0) for p in latest_open.values())
     total_notional = sum(p.get('notional', 0) for p in latest_open.values())
 
-    print(f"POSIÇÕES ABERTAS NO RASTREADOR: {len(latest_open)}")
-    print(f"MARGEM TOTAL EM USO:           {total_margin:.2f} USDT")
-    print(f"VALOR NOTIONAL TOTAL (EXP):    {total_notional:.2f} USDT")
+    print(f"POSIÇÕES NO RASTREADOR: {len(latest_open)}")
+    print(f"MARGEM TOTAL EM USO:    {total_margin:.2f} USDT")
+    print(f"EXPOSIÇÃO REAL (EXP):   {total_notional:.2f} USDT")
     print("=" * 130)
 
     new_entries = [r for r in results if r['action'] == 'ENTER']

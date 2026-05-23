@@ -28,19 +28,23 @@ class PositionEngine:
         return symbol in self.positions and self.positions[symbol]['status'] == 'OPEN'
 
     def open_position(self, symbol, setup):
+        """
+        Opens and tracks a position with standardized institutional keys.
+        """
         if self.has_position(symbol):
             return False
 
+        # Unified mapping to ensure data is saved regardless of source key names
         self.positions[symbol] = {
             "status": "OPEN",
-            "direction": setup["direction"],
-            "entry": setup["entry"],
-            "stop": setup["stop"],
-            "target": setup["target"],
-            "size": setup.get("position_size", setup.get("size", 0)),
-            "margin_used": setup.get("margin_required", setup.get("margin", 0)),
-            "notional": setup.get("notional_value", setup.get("notional", 0)),
-            "opened_at": "manual"
+            "direction": setup.get("direction"),
+            "entry": setup.get("entry"),
+            "stop": setup.get("stop"),
+            "target": setup.get("target"),
+            "size": setup.get("position_size") or setup.get("size", 0),
+            "margin_used": setup.get("margin_required") or setup.get("margin", 0),
+            "notional": setup.get("notional_value") or setup.get("notional", 0),
+            "opened_at": str(setup.get("timestamp", "manual"))
         }
         self._save_positions()
         return True

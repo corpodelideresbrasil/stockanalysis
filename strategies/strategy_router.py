@@ -1,6 +1,6 @@
 class StrategyRouter:
     """
-    Decide o setup de trade com base no regime de mercado e indicadores táticos.
+    Decides the trading setup based on market regime and tactical indicators.
     """
 
     @staticmethod
@@ -31,6 +31,7 @@ class StrategyRouter:
 
         last_4h = df_4h.iloc[-1]
         direction = position['direction']
+        # RSI 14 (tactical)
         rsi = last_4h['rsi']
 
         if direction == 'LONG' and rsi > 85:

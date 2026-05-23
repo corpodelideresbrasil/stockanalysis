@@ -32,6 +32,13 @@ class MarketScanner:
                 if symbol in open_positions:
                     pos = open_positions[symbol]
 
+                    # Self-healing: if margin is missing, calculate it
+                    if not pos.get('margin_used') or pos.get('margin_used') == 0:
+                        _, margin, notional = RiskEngine.calculate_position_size(pos['entry'], pos['stop'])
+                        pos['margin_used'] = margin
+                        pos['notional'] = notional
+                        self.pos_engine.update_position(symbol, {"margin_used": margin, "notional": notional})
+
                     new_stop = TrailingEngine.calculate_new_stop(symbol, pos, df_4h)
                     if new_stop:
                         self.pos_engine.update_position(symbol, {"stop": new_stop})
@@ -44,16 +51,10 @@ class MarketScanner:
                         if last_price <= pos['stop']:
                             self.pos_engine.close_position(symbol, "STOP_LOSS", last_price)
                             action = "CLOSED_STOP"
-                        elif last_price >= pos['target']:
-                            self.pos_engine.close_position(symbol, "TAKE_PROFIT", last_price)
-                            action = "CLOSED_TARGET"
                     else: # SHORT
                         if last_price >= pos['stop']:
                             self.pos_engine.close_position(symbol, "STOP_LOSS", last_price)
                             action = "CLOSED_STOP"
-                        elif last_price <= pos['target']:
-                            self.pos_engine.close_position(symbol, "TAKE_PROFIT", last_price)
-                            action = "CLOSED_TARGET"
 
                     results.append({
                         "symbol": symbol,
