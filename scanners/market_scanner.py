@@ -20,47 +20,40 @@ class MarketScanner:
             try:
                 print(f"Analyzing {symbol}...", flush=True)
 
-                # 1. Load Data
                 df_daily = DataLoader.get_ohlcv(symbol, TIMEFRAME_MACRO)
                 df_4h = DataLoader.get_ohlcv(symbol, TIMEFRAME_TACTICAL)
 
                 if df_daily is None or df_4h is None:
                     continue
 
-                # 2. Apply Indicators
                 df_daily = Indicators.apply_all(df_daily)
                 df_4h = Indicators.apply_all(df_4h)
 
-                # 3. Handle Existing Positions
                 if symbol in open_positions:
                     pos = open_positions[symbol]
 
-                    # Update trailing stop
                     new_stop = TrailingEngine.calculate_new_stop(symbol, pos, df_4h)
                     if new_stop:
                         self.pos_engine.update_position(symbol, {"stop": new_stop})
-                        pos['stop'] = new_stop # Update local ref for report
+                        pos['stop'] = new_stop
 
-                    # Evaluate status (HOLD, REDUCE, etc)
                     action = StrategyRouter.evaluate_position(pos, df_daily, df_4h)
 
                     last_price = df_4h.iloc[-1]['close']
-                    # Check hard exits (Stop/Target)
-                    is_closed = False
                     if pos['direction'] == 'LONG':
                         if last_price <= pos['stop']:
                             self.pos_engine.close_position(symbol, "STOP_LOSS", last_price)
-                            action, is_closed = "CLOSED_STOP", True
+                            action = "CLOSED_STOP"
                         elif last_price >= pos['target']:
                             self.pos_engine.close_position(symbol, "TAKE_PROFIT", last_price)
-                            action, is_closed = "CLOSED_TARGET", True
+                            action = "CLOSED_TARGET"
                     else: # SHORT
                         if last_price >= pos['stop']:
                             self.pos_engine.close_position(symbol, "STOP_LOSS", last_price)
-                            action, is_closed = "CLOSED_STOP", True
+                            action = "CLOSED_STOP"
                         elif last_price <= pos['target']:
                             self.pos_engine.close_position(symbol, "TAKE_PROFIT", last_price)
-                            action, is_closed = "CLOSED_TARGET", True
+                            action = "CLOSED_TARGET"
 
                     results.append({
                         "symbol": symbol,
@@ -70,16 +63,14 @@ class MarketScanner:
                         "stop": pos["stop"],
                         "target": pos["target"],
                         "size": pos["size"],
-                        "current_price": last_price,
+                        "margin": pos.get("margin_used", 0),
                         "regime": StrategyRouter.get_market_regime(df_daily)
                     })
                     continue
 
-                # 4. Strategy Routing (Entry Logic)
                 setup = StrategyRouter.route(df_daily, df_4h)
 
                 if setup:
-                    # 5. Risk Management
                     setup = RiskEngine.get_risk_parameters(setup)
                     results.append({
                         "symbol": symbol,
@@ -89,15 +80,11 @@ class MarketScanner:
                         "stop": setup["stop"],
                         "target": setup["target"],
                         "size": setup["position_size"],
-                        "current_price": df_4h.iloc[-1]['close'],
+                        "margin": setup.get("margin_required", 0),
                         "regime": setup["regime"]
                     })
-
-                    # Optional: Automatically "open" position in the engine for tracking
-                    # self.pos_engine.open_position(symbol, setup)
 
             except Exception as e:
                 print(f"Error analyzing {symbol}: {e}")
 
-        # Return the latest state after processing
         return results, self.pos_engine.get_open_positions()

@@ -1,23 +1,25 @@
-# Configuration settings for Swing Engine V2
-
+# Configurações de Capital e Risco
 INITIAL_CAPITAL = 200.0  # USD
-RISK_PER_TRADE = 0.02    # 2% risk per trade
+RISK_PER_TRADE = 0.02    # 2% de risco do capital total por trade
 
-# Exchange Settings
-EXCHANGE_ID = 'kraken' # Changed from 'binance' due to environment restrictions, user can revert to 'binance'
+# Configurações da Exchange (Binance Futures)
+EXCHANGE_ID = 'binance'
 EXCHANGE_CONFIG = {
-    'apiKey': '',
-    'secret': '',
+    'apiKey': '', # Insira sua chave
+    'secret': '', # Insira seu secret
     'enableRateLimit': True,
+    'options': {
+        'defaultType': 'future', # OBRIGATÓRIO PARA PERPÉTUOS
+    }
 }
 
-# Operational Timeframes
+# Gestão de Alavancagem e Margem
+DEFAULT_LEVERAGE = 10  # Alavancagem padrão (Ex: 10x)
+
+# Timeframes
 TIMEFRAME_MACRO = '1d'
 TIMEFRAME_TACTICAL = '4h'
 
-# Indicator Parameters
+# Parâmetros Supertrend
 SUPERTREND_PERIOD = 15
 SUPERTREND_MULTIPLIER = 1.4
-
-# Risk Settings
-POSITION_SIZING_METHOD = 'risk_based'  # Calculation based on entry-stop distance

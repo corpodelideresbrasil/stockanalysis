@@ -3,7 +3,7 @@ import os
 
 class PositionEngine:
     """
-    Manages the lifecycle of trading positions.
+    Manages the lifecycle of trading positions with margin tracking.
     """
     STATE_FILE = "data/positions.json"
 
@@ -20,6 +20,7 @@ class PositionEngine:
         return {}
 
     def _save_positions(self):
+        os.makedirs("data", exist_ok=True)
         with open(self.STATE_FILE, 'w') as f:
             json.dump(self.positions, f, indent=4)
 
@@ -36,8 +37,10 @@ class PositionEngine:
             "entry": setup["entry"],
             "stop": setup["stop"],
             "target": setup["target"],
-            "size": setup["position_size"],
-            "opened_at": str(setup.get("timestamp", "unknown"))
+            "size": setup.get("position_size", setup.get("size", 0)),
+            "margin_used": setup.get("margin_required", setup.get("margin", 0)),
+            "notional": setup.get("notional_value", setup.get("notional", 0)),
+            "opened_at": "manual"
         }
         self._save_positions()
         return True
@@ -47,7 +50,6 @@ class PositionEngine:
             self.positions[symbol]['status'] = 'CLOSED'
             self.positions[symbol]['exit_reason'] = reason
             self.positions[symbol]['exit_price'] = price
-            # In a real system, we might move this to a history file
             self._save_positions()
             return True
         return False
