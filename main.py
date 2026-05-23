@@ -1,4 +1,5 @@
 from scanners.market_scanner import MarketScanner
+from config.config import INITIAL_CAPITAL, MAX_PORTFOLIO_LEVERAGE
 
 def main():
     print("\n" + "=" * 130)
@@ -45,20 +46,29 @@ def main():
 
     total_margin = sum(p.get('margin_used', 0) for p in latest_open.values())
     total_notional = sum(p.get('notional', 0) for p in latest_open.values())
+    current_leverage = total_notional / INITIAL_CAPITAL if INITIAL_CAPITAL > 0 else 0
 
     print(f"POSIÇÕES NO RASTREADOR: {len(latest_open)}")
     print(f"MARGEM TOTAL EM USO:    {total_margin:.2f} USDT")
     print(f"EXPOSIÇÃO REAL (EXP):   {total_notional:.2f} USDT")
+    print(f"ALAVANCAGEM ATUAL:      {current_leverage:.2f}x (MAX: {MAX_PORTFOLIO_LEVERAGE}x)")
+
+    if current_leverage > MAX_PORTFOLIO_LEVERAGE:
+        print(f"\n⚠️ ALERTA: Alavancagem total do portfólio ({current_leverage:.2f}x) excedeu o limite institucional de {MAX_PORTFOLIO_LEVERAGE}x!")
+
     print("=" * 130)
 
     new_entries = [r for r in results if r['action'] == 'ENTER']
     if new_entries:
-        ans = input(f"\nDeseja iniciar rastreio para {len(new_entries)} novos sinais? (s/n): ")
-        if ans.lower() == 's':
-            pe = scanner.pos_engine
-            for r in new_entries:
-                pe.open_position(r['symbol'], r)
-            print("Rastreador atualizado com sucesso!")
+        if current_leverage >= MAX_PORTFOLIO_LEVERAGE:
+            print("\n🚫 NOVAS ENTRADAS BLOQUEADAS: Limite de alavancagem do portfólio atingido.")
+        else:
+            ans = input(f"\nDeseja iniciar rastreio para {len(new_entries)} novos sinais? (s/n): ")
+            if ans.lower() == 's':
+                pe = scanner.pos_engine
+                for r in new_entries:
+                    pe.open_position(r['symbol'], r)
+                print("Rastreador atualizado com sucesso!")
 
 if __name__ == "__main__":
     main()

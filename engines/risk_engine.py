@@ -1,4 +1,4 @@
-from config.config import INITIAL_CAPITAL, RISK_PER_TRADE, DEFAULT_LEVERAGE
+from config.config import INITIAL_CAPITAL, RISK_PER_TRADE, DEFAULT_LEVERAGE, MAX_TRADE_NOTIONAL_PCT
 
 class RiskEngine:
     """
@@ -6,33 +6,32 @@ class RiskEngine:
     """
 
     @staticmethod
-    def calculate_position_size(entry, stop, capital=INITIAL_CAPITAL, risk_pct=RISK_PER_TRADE, leverage=DEFAULT_LEVERAGE):
+    def calculate_position_size(entry, stop, capital=INITIAL_CAPITAL):
         """
-        Risk-based position sizing.
-        Formula: (Capital * Risk%) / Distance to Stop
-        Returns: (size_in_units, margin_required, notional_value)
+        Risk-based position sizing with Notional Capping.
+        1. Calculates size based on fixed risk (e.g. 2% of equity).
+        2. Caps size so Notional Value does not exceed MAX_TRADE_NOTIONAL_PCT of equity.
         """
         if entry == stop or not entry:
             return 0, 0, 0
 
-        risk_amount = capital * risk_pct
+        # 1. Size based on Risk (Stop Loss distance)
+        risk_amount = capital * RISK_PER_TRADE
         distance = abs(entry - stop)
+        size_by_risk = risk_amount / distance
 
-        if distance == 0:
-            return 0, 0, 0
+        # 2. Institutional Notional Cap (Safety Ceiling)
+        # Prevents over-leveraging on a single asset even with a tight stop
+        max_notional = capital * MAX_TRADE_NOTIONAL_PCT
+        size_by_cap = max_notional / entry
 
-        size_in_units = risk_amount / distance
-        notional_value = size_in_units * entry
-        margin_required = notional_value / leverage
+        # Final size is the most conservative of the two
+        final_size = min(size_by_risk, size_by_cap)
 
-        # Safety check: Cannot use more margin than available capital
-        if margin_required > capital:
-            # Scale down size to fit maximum available margin
-            margin_required = capital * 0.90 # 10% safety buffer
-            notional_value = margin_required * leverage
-            size_in_units = notional_value / entry
+        notional_value = final_size * entry
+        margin_required = notional_value / DEFAULT_LEVERAGE
 
-        return size_in_units, margin_required, notional_value
+        return final_size, margin_required, notional_value
 
     @staticmethod
     def get_risk_parameters(setup, capital=INITIAL_CAPITAL):
