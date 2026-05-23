@@ -33,6 +33,37 @@ class StrategyRouter:
         return regime
 
     @staticmethod
+    def evaluate_position(position, df_daily, df_4h):
+        """
+        Evaluates an active position for proactive exits or status updates.
+        """
+        if df_daily is None or df_4h is None:
+            return "HOLD"
+
+        last_4h = df_4h.iloc[-1]
+        last_daily = df_daily.iloc[-1]
+
+        direction = position['direction']
+        rsi = last_4h['rsi']
+        adx = last_4h['adx']
+        close = last_4h['close']
+        ema21 = last_4h['ema21']
+
+        # Proactive Exit Logic
+        if direction == 'LONG':
+            # Exit if RSI is extremely overbought or trend is dead
+            if rsi > 85: return "EXIT_PROFIT"
+            if close < ema21: return "REDUCE" # Weakness
+            if adx < 20: return "HOLD_CAUTION"
+
+        elif direction == 'SHORT':
+            if rsi < 15: return "EXIT_PROFIT"
+            if close > ema21: return "REDUCE"
+            if adx < 20: return "HOLD_CAUTION"
+
+        return "HOLD"
+
+    @staticmethod
     def route(df_daily, df_4h):
         """
         Generates a trade setup based on both macro (daily) and tactical (4h) data.

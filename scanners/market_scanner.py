@@ -18,7 +18,7 @@ class MarketScanner:
 
         for symbol in SYMBOLS:
             try:
-                print(f"Analyzing {symbol}...")
+                print(f"Analyzing {symbol}...", flush=True)
 
                 # 1. Load Data
                 df_daily = DataLoader.get_ohlcv(symbol, TIMEFRAME_MACRO)
@@ -34,32 +34,46 @@ class MarketScanner:
                 # 3. Handle Existing Positions
                 if symbol in open_positions:
                     pos = open_positions[symbol]
-                    print(f"  Existing position found: {pos['direction']}")
 
-                    # Check for exit conditions (trailing stop)
+                    # Update trailing stop
                     new_stop = TrailingEngine.calculate_new_stop(symbol, pos, df_4h)
                     if new_stop:
                         self.pos_engine.update_position(symbol, {"stop": new_stop})
-                        print(f"  Trailing stop updated: {new_stop}")
+                        pos['stop'] = new_stop # Update local ref for report
 
-                    # Check for exit (simulated for now, would check price vs stop/target)
+                    # Evaluate status (HOLD, REDUCE, etc)
+                    action = StrategyRouter.evaluate_position(pos, df_daily, df_4h)
+
                     last_price = df_4h.iloc[-1]['close']
+                    # Check hard exits (Stop/Target)
+                    is_closed = False
                     if pos['direction'] == 'LONG':
                         if last_price <= pos['stop']:
                             self.pos_engine.close_position(symbol, "STOP_LOSS", last_price)
-                            print("  Position closed by STOP_LOSS")
+                            action, is_closed = "CLOSED_STOP", True
                         elif last_price >= pos['target']:
                             self.pos_engine.close_position(symbol, "TAKE_PROFIT", last_price)
-                            print("  Position closed by TAKE_PROFIT")
+                            action, is_closed = "CLOSED_TARGET", True
                     else: # SHORT
                         if last_price >= pos['stop']:
                             self.pos_engine.close_position(symbol, "STOP_LOSS", last_price)
-                            print("  Position closed by STOP_LOSS")
+                            action, is_closed = "CLOSED_STOP", True
                         elif last_price <= pos['target']:
                             self.pos_engine.close_position(symbol, "TAKE_PROFIT", last_price)
-                            print("  Position closed by TAKE_PROFIT")
+                            action, is_closed = "CLOSED_TARGET", True
 
-                    continue # Skip entry logic if already in position
+                    results.append({
+                        "symbol": symbol,
+                        "direction": pos["direction"],
+                        "action": action,
+                        "entry": pos["entry"],
+                        "stop": pos["stop"],
+                        "target": pos["target"],
+                        "size": pos["size"],
+                        "current_price": last_price,
+                        "regime": StrategyRouter.get_market_regime(df_daily)
+                    })
+                    continue
 
                 # 4. Strategy Routing (Entry Logic)
                 setup = StrategyRouter.route(df_daily, df_4h)
@@ -67,10 +81,17 @@ class MarketScanner:
                 if setup:
                     # 5. Risk Management
                     setup = RiskEngine.get_risk_parameters(setup)
-                    setup['symbol'] = symbol
-                    setup['close'] = df_4h.iloc[-1]['close']
-
-                    results.append(setup)
+                    results.append({
+                        "symbol": symbol,
+                        "direction": setup["direction"],
+                        "action": "ENTER",
+                        "entry": setup["entry"],
+                        "stop": setup["stop"],
+                        "target": setup["target"],
+                        "size": setup["position_size"],
+                        "current_price": df_4h.iloc[-1]['close'],
+                        "regime": setup["regime"]
+                    })
 
                     # Optional: Automatically "open" position in the engine for tracking
                     # self.pos_engine.open_position(symbol, setup)
