@@ -12,6 +12,7 @@ lookback_std    = input.int(20, "Volatility Lookback", minval=2)
 lookback_norm   = input.int(100, "Normalization Lookback", minval=10)
 tau             = input.int(10, "Inertia EMA Period (τ)", minval=1)
 stability_thr   = input.float(0.4, "Stability Threshold (0-1)", minval=0.1, maxval=1.0, step=0.05, tooltip="Minimum probability/score to switch regime")
+hysteresis      = input.float(0.1, "Trend Hysteresis", minval=0.0, maxval=0.5, step=0.05, tooltip="Extra score needed to exit Trend regime")
 table_transp    = input.int(40, "Table Transparency", minval=0, maxval=100)
 use_softmax     = input.bool(true, "Use Softmax Probabilities for Decision")
 
@@ -98,7 +99,11 @@ else
     raw_regime := 3
 
 var int regime = 3
-if max_score > stability_thr
+// Hysteresis logic: if we are in trend (0), we need the max_score of the NEW regime
+// to be higher than the current trend score plus hysteresis to exit.
+exit_trend_gate = (regime == 0 and raw_regime != 0) ? (max_score > score_trend + hysteresis) : true
+
+if max_score > stability_thr and exit_trend_gate
     regime := raw_regime
 
 // ==========================================
@@ -124,8 +129,16 @@ color regime_color = regime == 0 ? c_trend :
 bgcolor(regime_color)
 barcolor(regime == 0 ? color.green : regime == 1 ? color.blue : regime == 2 ? color.orange : regime == 3 ? color.purple : color.gray)
 
+// Markov Transitions Tracking
+var float[] transitions = array.new_float(16, 0.0) // 4x4 matrix
+var int last_regime = regime
+if regime != last_regime[1]
+    // index = last_regime * 4 + current_regime
+    idx = last_regime[1] * 4 + regime
+    array.set(transitions, idx, array.get(transitions, idx) + 1)
+
 // Dashboard
-var table info_table = table.new(position.top_right, 2, 7, bgcolor = color.new(color.black, table_transp), border_width = 1, border_color = color.gray)
+var table info_table = table.new(position.top_right, 2, 11, bgcolor = color.new(color.black, table_transp), border_width = 1, border_color = color.gray)
 if barstate.islast
     table.cell(info_table, 0, 0, "Regime", text_color = color.white)
     table.cell(info_table, 1, 0, regime == 0 ? "TREND" : regime == 1 ? "COMPRESSION" : regime == 2 ? "EXHAUSTION" : "CHAOS", text_color = color.white, bgcolor = regime_color)
@@ -148,6 +161,30 @@ if barstate.islast
 
     table.cell(info_table, 0, 6, "Proj. Move", text_color = color.white)
     table.cell(info_table, 1, 6, str.tostring(v_proj, "#.####"), text_color = v_proj > 0 ? color.green : color.red)
+
+    // Simplified Markov Matrix Preview
+    table.cell(info_table, 0, 7, "Markov T-1", text_color = color.gray, text_size = size.small)
+    table.cell(info_table, 1, 7, "Next Prob", text_color = color.gray, text_size = size.small)
+
+    // Calculate probabilities for the current state's transitions
+    float s0 = array.get(transitions, regime * 4 + 0)
+    float s1 = array.get(transitions, regime * 4 + 1)
+    float s2 = array.get(transitions, regime * 4 + 2)
+    float s3 = array.get(transitions, regime * 4 + 3)
+    float total_t = math.max(s0 + s1 + s2 + s3, 1)
+
+    table.cell(info_table, 0, 8, "Stay " + (regime == 0 ? "Trend" : regime == 1 ? "Comp" : regime == 2 ? "Exh" : "Chaos"), text_color = color.white, text_size = size.small)
+    table.cell(info_table, 1, 8, str.tostring((array.get(transitions, regime * 4 + regime) / total_t) * 100, "##") + "%", text_color = color.white, text_size = size.small)
+
+    // Most likely transition
+    float max_t = math.max(s0, s1, s2, s3)
+    int next_likely = s0 == max_t ? 0 : s1 == max_t ? 1 : s2 == max_t ? 2 : 3
+
+    table.cell(info_table, 0, 9, "Likely Next", text_color = color.white, text_size = size.small)
+    table.cell(info_table, 1, 9, (next_likely == 0 ? "TREND" : next_likely == 1 ? "COMP" : next_likely == 2 ? "EXH" : "CHAOS"), text_color = color.yellow, text_size = size.small)
+
+    table.cell(info_table, 0, 10, "Stability", text_color = color.white, text_size = size.small)
+    table.cell(info_table, 1, 10, str.tostring(max_score, "#.##"), text_color = max_score > stability_thr ? color.green : color.red, text_size = size.small)
 
 // Signals
 plotshape(regime == 0 and regime[1] != 0, title="Enter Trend", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.small, text="TREND")
