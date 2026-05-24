@@ -1,0 +1,13 @@
+{
+    "ETH/USDT": {
+        "status": "OPEN",
+        "direction": "SHORT",
+        "entry": 2126.45,
+        "stop": 2188.6321,
+        "target": 2002.0858,
+        "size": 0.0643,
+        "margin_used": 13.68,
+        "notional": 136.8,
+        "opened_at": "manual"
+    }
+}
