@@ -72,4 +72,19 @@ Você pode calibrar a agressividade do sistema no arquivo `config/config.py`:
 - `strategies/strategy_router.py`: Onde você altera a lógica de entrada e saída.
 
 ---
+
+## 📈 5. Expansão e Dinâmica do Mercado
+
+### Adicionando Novos Ativos (`config/symbols.py`)
+Você pode adicionar quantos ativos desejar na lista de monitoramento. O mercado é dinâmico e novos ativos surgem constantemente.
+- **Análise Independente:** O motor analisa cada moeda de forma técnica e isolada. Se uma moeda nova atingir os critérios de entrada, ela aparecerá como `>> ENTER`.
+- **Equilíbrio do Portfólio:** Mesmo que você adicione 100 moedas, o sistema **protege seu saldo global**. Se o somatório das posições abertas mais o novo sinal exceder o limite de **3x Alavancagem**, o sistema emitirá um alerta e impedirá o rastreio da nova posição.
+- **Gestão de Fila:** Em um mercado com muitas oportunidades, o sistema prioriza o capital para as primeiras posições que você decidir rastrear, preservando a margem para segurança.
+
+### Escabilidade de Capital (Abstração de Unidades)
+O sistema opera de forma **linear e proporcional**:
+- **Proporcionalidade:** Uma conta de 600 USD terá posições exatamente 3x maiores que uma conta de 200 USD, mantendo o mesmo risco percentual de 2%.
+- **Atualização Simples:** Quando seu capital crescer (por lucro ou aporte), basta atualizar o valor de `INITIAL_CAPITAL` no arquivo `config/config.py`. O motor recalculará instantaneamente todos os novos valores de **Qtd (USDT)** e **Margem** para o novo patamar, sem que você precise fazer cálculos manuais.
+
+---
 **Aviso Legal:** Este sistema é uma ferramenta de apoio à decisão. O mercado de futuros perpétuos envolve alto risco. Sempre valide os sinais antes de executar ordens reais.
