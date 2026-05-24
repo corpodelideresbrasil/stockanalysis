@@ -2,171 +2,162 @@
 // © Jules
 
 //@version=5
-indicator("Market Physics Regime Model (MPRM)", overlay=true, max_labels_count=500)
+indicator("Market Physics Regime Model V2 (MPRM System)", overlay=true, max_labels_count=500)
 
 // ==========================================
 // 1. Inputs
 // ==========================================
-lookback_c     = input.int(20, "Coherence Lookback (n)", minval=2)
-lookback_std   = input.int(20, "Volatility Lookback (σ)", minval=2)
-lookback_norm  = input.int(100, "Normalization Lookback", minval=10)
-tau            = input.int(10, "Inertia EMA Period (τ)", minval=1)
-show_background = input.bool(true, "Show Background Colors")
-show_labels     = input.bool(true, "Show Regime Labels")
-use_softmax     = input.bool(false, "Use Softmax Probabilities for Decision")
+lookback_c      = input.int(20, "Coherence Lookback", minval=2)
+lookback_std    = input.int(20, "Volatility Lookback", minval=2)
+lookback_norm   = input.int(100, "Normalization Lookback", minval=10)
+tau             = input.int(10, "Inertia EMA Period (τ)", minval=1)
+stability_thr   = input.float(0.4, "Stability Threshold (0-1)", minval=0.1, maxval=1.0, step=0.05, tooltip="Minimum probability/score to switch regime")
+table_transp    = input.int(40, "Table Transparency", minval=0, maxval=100)
+use_softmax     = input.bool(true, "Use Softmax Probabilities for Decision")
 
 // ==========================================
-// 2. Fundamental Physics Variables
+// 2. Fundamental Physics & Projected Vector
 // ==========================================
-// v_t = P_t - P_{t-1}
+// v_t: velocity (displacement)
 v = close - close[1]
 
-// a_t = v_t - v_{t-1}
+// a_t: acceleration
 a = v - v[1]
 
-// j_t = a_t - a_{t-1}
+// j_t: jerk
 j = a - a[1]
 
-// ==========================================
-// 3. Energy and Momentum
-// ==========================================
-// E_k(t) = v_t^2 (Kinetic Energy)
-ek = math.pow(v, 2)
+// Projected Velocity (Newtonian approximation)
+v_proj = v + a
 
-// M_t = σ(P_t, n) · |v_t| (Momentum)
+// Efficiency (η) = Displacement / Total Path
+path = math.sum(math.abs(v), lookback_c)
+displacement = math.abs(close - close[lookback_c])
+efficiency = displacement / math.max(path, 1e-10)
+
+// ==========================================
+// 3. Energy Metrics
+// ==========================================
+ek = math.pow(v, 2)
 volatility = ta.stdev(close, lookback_std)
 m = volatility * math.abs(v)
-
-// I_t = EMA(M_t, τ) (Inertia)
-i_inertia = ta.ema(m, tau)
-
-// ==========================================
-// 4. Coherence
-// ==========================================
-// C_t = |ρ(P_t, t)| (Structural Coherence)
-// Correlation between price and time (bar_index)
-c_coherence = math.abs(ta.correlation(close, bar_index, lookback_c))
-
-// Φ_t = C_t · (E_k(t) + I_t) (Dynamic Structure)
-phi = c_coherence * (ek + i_inertia)
-
-// Dissipation: Energy not captured by structural coherence
-dissipation = (1 - c_coherence) * (ek + i_inertia)
-e_total = ek + i_inertia + dissipation
+inertia = ta.ema(m, tau)
+coherence = math.abs(ta.correlation(close, bar_index, lookback_c))
+phi = coherence * (ek + inertia)
+ep = ta.ema(1 / math.max(volatility, 1e-10) * coherence, tau)
 
 // ==========================================
-// 5. Normalization and Sigmoid
+// 4. Normalization (Z-Score / Logits)
 // ==========================================
-// Standard sigmoid function
-sigmoid(x) => 1 / (1 + math.exp(-x))
-
-// Standardize and Sigmoid (to map values to 0-1 range based on recent history)
-norm_sigmoid(src, len) =>
+get_z(src, len) =>
     mean = ta.sma(src, len)
     stdev = ta.stdev(src, len)
-    z = (src - mean) / math.max(stdev, 1e-10)
-    sigmoid(z)
+    (src - mean) / math.max(stdev, 1e-10)
+
+sigmoid(x) => 1 / (1 + math.exp(-x))
 
 // ==========================================
-// 6. Regime Fields
+// 5. Regime Fields (Raw Z-Scores)
 // ==========================================
+f_confirm = (v > 0 and a > 0) or (v < 0 and a < 0) ? 1.0 : -0.5
+z_trend = get_z(phi * efficiency * f_confirm, lookback_norm)
 
-// 6.1 Field: TREND
-// R_trend(t) = σ((Φ_t - μ_Φ) / σ_Φ)
-r_trend = norm_sigmoid(phi, lookback_norm)
+z_comp = get_z(ep * (1 - efficiency), lookback_norm)
 
-// 6.2 Field: COMPRESSION
-// R_comp(t) = σ(f(low volatility, C_t))
-// We'll define low volatility as a normalized inverse of volatility * coherence
-// High coherence + low volatility = Compression
-inv_vol = 1 / math.max(volatility, 1e-10)
-r_comp = norm_sigmoid(inv_vol * c_coherence, lookback_norm)
+exh_raw = (math.abs(j) / math.max(math.abs(a), 1e-10)) * coherence
+z_exh = get_z(exh_raw, lookback_norm)
 
-// 6.3 Field: EXHAUSTION
-// R_exh(t) = σ((|a_t| + |j_t|) · C_t)
-exh_raw = (math.abs(a) + math.abs(j)) * c_coherence
-r_exh = norm_sigmoid(exh_raw, lookback_norm)
-
-// 6.4 Field: CHAOS
-// R_chaos(t) = σ((σ(v_t) + |j_t|)(1 - C_t))
-v_std = ta.stdev(v, lookback_std)
-chaos_raw = (v_std + math.abs(j)) * (1 - c_coherence)
-r_chaos = norm_sigmoid(chaos_raw, lookback_norm)
+chaos_raw = (1 - coherence) * (1 - efficiency) * (ta.stdev(v, lookback_std))
+z_chaos = get_z(chaos_raw, lookback_norm)
 
 // ==========================================
-// 7. Decision Logic
+// 6. Decision Logic
 // ==========================================
-
-// Softmax extension
-exp_sum = math.exp(r_trend) + math.exp(r_comp) + math.exp(r_exh) + math.exp(r_chaos)
-p_trend = math.exp(r_trend) / exp_sum
-p_comp  = math.exp(r_comp) / exp_sum
-p_exh   = math.exp(r_exh) / exp_sum
-p_chaos = math.exp(r_chaos) / exp_sum
-
-float max_val = 0.0
-int regime = 0 // 0: Trend, 1: Compression, 2: Exhaustion, 3: Chaos
+float p_trend = 0.0, float p_comp = 0.0, float p_exh = 0.0, float p_chaos = 0.0
+float score_trend = 0.0, float score_comp = 0.0, float score_exh = 0.0, float score_chaos = 0.0
 
 if use_softmax
-    max_val := math.max(p_trend, p_comp, p_exh, p_chaos)
-    if max_val == p_trend
-        regime := 0
-    else if max_val == p_comp
-        regime := 1
-    else if max_val == p_exh
-        regime := 2
-    else
-        regime := 3
+    exp_sum = math.exp(z_trend) + math.exp(z_comp) + math.exp(z_exh) + math.exp(z_chaos)
+    p_trend := math.exp(z_trend) / exp_sum
+    p_comp  := math.exp(z_comp) / exp_sum
+    p_exh   := math.exp(z_exh) / exp_sum
+    p_chaos := math.exp(z_chaos) / exp_sum
+    score_trend := p_trend, score_comp := p_comp, score_exh := p_exh, score_chaos := p_chaos
 else
-    max_val := math.max(r_trend, r_comp, r_exh, r_chaos)
-    if max_val == r_trend
-        regime := 0
-    else if max_val == r_comp
-        regime := 1
-    else if max_val == r_exh
-        regime := 2
-    else
-        regime := 3
+    score_trend := sigmoid(z_trend), score_comp := sigmoid(z_comp), score_exh := sigmoid(z_exh), score_chaos := sigmoid(z_chaos)
+
+float max_score = math.max(score_trend, score_comp, score_exh, score_chaos)
+int raw_regime = 0
+if max_score == score_trend
+    raw_regime := 0
+else if max_score == score_comp
+    raw_regime := 1
+else if max_score == score_exh
+    raw_regime := 2
+else
+    raw_regime := 3
+
+var int regime = 3
+if max_score > stability_thr
+    regime := raw_regime
 
 // ==========================================
-// 8. Visuals
+// 7. Anticipatory Warnings
 // ==========================================
-color regime_color = regime == 0 ? color.new(color.green, 85) :
-                     regime == 1 ? color.new(color.blue, 85) :
-                     regime == 2 ? color.new(color.orange, 85) :
-                     color.new(color.red, 85)
+bool warn_decel = regime == 0 and ((v > 0 and a < 0) or (v < 0 and a > 0))
+bool risk_reversal = (regime == 0 or regime == 2) and (z_exh > 1.5 or (warn_decel and z_exh > 0))
+bool breakout_potential = (regime == 1 or regime == 3) and efficiency > 0.6 and phi > ta.sma(phi, lookback_norm)
 
-bgcolor(show_background ? regime_color : na)
+// ==========================================
+// 8. Visual System
+// ==========================================
+color c_trend = color.new(color.green, 85)
+color c_comp  = color.new(color.blue, 85)
+color c_exh   = color.new(color.orange, 85)
+color c_chaos = color.new(color.purple, 85)
 
-// Label for current status
-var table info_table = table.new(position.top_right, 2, 6, bgcolor = color.new(color.black, 20), border_width = 1)
+color regime_color = regime == 0 ? c_trend :
+                     regime == 1 ? c_comp :
+                     regime == 2 ? c_exh :
+                     c_chaos
+
+bgcolor(regime_color)
+barcolor(regime == 0 ? color.green : regime == 1 ? color.blue : regime == 2 ? color.orange : regime == 3 ? color.purple : color.gray)
+
+// Dashboard
+var table info_table = table.new(position.top_right, 2, 7, bgcolor = color.new(color.black, table_transp), border_width = 1, border_color = color.gray)
 if barstate.islast
     table.cell(info_table, 0, 0, "Regime", text_color = color.white)
-    table.cell(info_table, 1, 0, regime == 0 ? "TREND" : regime == 1 ? "COMPRESSION" : regime == 2 ? "EXHAUSTION" : "CHAOS", text_color = color.white)
+    table.cell(info_table, 1, 0, regime == 0 ? "TREND" : regime == 1 ? "COMPRESSION" : regime == 2 ? "EXHAUSTION" : "CHAOS", text_color = color.white, bgcolor = regime_color)
 
-    table.cell(info_table, 0, 1, use_softmax ? "P_Trend" : "R_Trend", text_color = color.white)
-    table.cell(info_table, 1, 1, str.tostring(use_softmax ? p_trend : r_trend, "#.##"), text_color = color.white)
+    label_type = use_softmax ? "P(" : "S("
+    table.cell(info_table, 0, 1, label_type + "Trend)", text_color = color.white)
+    table.cell(info_table, 1, 1, str.tostring(score_trend * (use_softmax ? 100 : 1), use_softmax ? "##.#%" : "#.##"), text_color = score_trend > stability_thr ? color.green : color.white)
 
-    table.cell(info_table, 0, 2, use_softmax ? "P_Comp" : "R_Comp", text_color = color.white)
-    table.cell(info_table, 1, 2, str.tostring(use_softmax ? p_comp : r_comp, "#.##"), text_color = color.white)
+    table.cell(info_table, 0, 2, label_type + "Comp)", text_color = color.white)
+    table.cell(info_table, 1, 2, str.tostring(score_comp * (use_softmax ? 100 : 1), use_softmax ? "##.#%" : "#.##"), text_color = score_comp > stability_thr ? color.blue : color.white)
 
-    table.cell(info_table, 0, 3, use_softmax ? "P_Exh" : "R_Exh", text_color = color.white)
-    table.cell(info_table, 1, 3, str.tostring(use_softmax ? p_exh : r_exh, "#.##"), text_color = color.white)
+    table.cell(info_table, 0, 3, label_type + "Exh)", text_color = color.white)
+    table.cell(info_table, 1, 3, str.tostring(score_exh * (use_softmax ? 100 : 1), use_softmax ? "##.#%" : "#.##"), text_color = score_exh > stability_thr ? color.orange : color.white)
 
-    table.cell(info_table, 0, 4, use_softmax ? "P_Chaos" : "R_Chaos", text_color = color.white)
-    table.cell(info_table, 1, 4, str.tostring(use_softmax ? p_chaos : r_chaos, "#.##"), text_color = color.white)
+    table.cell(info_table, 0, 4, label_type + "Chaos)", text_color = color.white)
+    table.cell(info_table, 1, 4, str.tostring(score_chaos * (use_softmax ? 100 : 1), use_softmax ? "##.#%" : "#.##"), text_color = score_chaos > stability_thr ? color.purple : color.white)
 
-    table.cell(info_table, 0, 5, "Coherence", text_color = color.white)
-    table.cell(info_table, 1, 5, str.tostring(c_coherence, "#.##"), text_color = color.white)
+    table.cell(info_table, 0, 5, "Efficiency (η)", text_color = color.white)
+    table.cell(info_table, 1, 5, str.tostring(efficiency, "#.##"), text_color = color.white)
 
-// Bar coloring
-barcolor(regime == 0 ? color.green : regime == 1 ? color.blue : regime == 2 ? color.orange : color.red)
+    table.cell(info_table, 0, 6, "Proj. Move", text_color = color.white)
+    table.cell(info_table, 1, 6, str.tostring(v_proj, "#.####"), text_color = v_proj > 0 ? color.green : color.red)
 
-// 8.1 Arrows for regime transitions
+// Signals
 plotshape(regime == 0 and regime[1] != 0, title="Enter Trend", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.small, text="TREND")
 plotshape(regime == 2 and regime[1] != 2, title="Exhaustion", style=shape.triangledown, location=location.abovebar, color=color.orange, size=size.small, text="EXH")
+plotshape(regime == 3 and regime[1] != 3, title="Chaos", style=shape.xcross, location=location.abovebar, color=color.purple, size=size.tiny, text="CHAOS")
+plotchar(warn_decel, title="Deceleration", char="!", location=location.abovebar, color=color.yellow, size=size.tiny)
+plotchar(risk_reversal, title="Reversal Risk", char="‼", location=location.abovebar, color=color.red, size=size.small)
+plotchar(breakout_potential, title="Breakout Potential", char="⊙", location=location.belowbar, color=color.aqua, size=size.tiny)
 
-// Alerts (optional but useful)
-alertcondition(regime != regime[1], "Regime Change", "MPRM Regime changed")
-alertcondition(regime == 0 and regime[1] != 0, "Trend Started", "Market entered Trend regime")
-alertcondition(regime == 2 and regime[1] != 2, "Exhaustion Started", "Market entered Exhaustion regime")
+// Alerts
+alertcondition(regime != regime[1], "Regime Change", "Regime shifted")
+alertcondition(risk_reversal, "Reversal Risk!", "Model detects high reversal risk")
+alertcondition(breakout_potential, "Breakout Potential", "Model detects accumulation/breakout setup")
