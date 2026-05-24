@@ -44,14 +44,16 @@ def main():
 
     print("-" * 130)
 
-    total_margin = sum(p.get('margin_used', 0) for p in latest_open.values())
-    total_notional = sum(p.get('notional', 0) for p in latest_open.values())
+    # Calculate totals based on displayed results (Projected Portfolio)
+    active_results = [r for r in results if r['action'] in ['ENTER', 'HOLD', 'REDUCE', 'HOLD_CAUTION']]
+    total_margin = sum(r.get('margin', 0) for r in active_results)
+    total_notional = sum(r.get('size', 0) * r.get('entry', 0) for r in active_results)
     current_leverage = total_notional / INITIAL_CAPITAL if INITIAL_CAPITAL > 0 else 0
 
-    print(f"POSIÇÕES NO RASTREADOR: {len(latest_open)}")
-    print(f"MARGEM TOTAL EM USO:    {total_margin:.2f} USDT")
+    print(f"ATVIVOS NO PAINEL:      {len(active_results)}")
+    print(f"MARGEM TOTAL PROJETADA: {total_margin:.2f} USDT")
     print(f"EXPOSIÇÃO REAL (EXP):   {total_notional:.2f} USDT")
-    print(f"ALAVANCAGEM ATUAL:      {current_leverage:.2f}x (MAX: {MAX_PORTFOLIO_LEVERAGE}x)")
+    print(f"ALAVANCAGEM PROJETADA:  {current_leverage:.2f}x (MAX: {MAX_PORTFOLIO_LEVERAGE}x)")
 
     if current_leverage > MAX_PORTFOLIO_LEVERAGE:
         print(f"\n⚠️ ALERTA: Alavancagem total do portfólio ({current_leverage:.2f}x) excedeu o limite institucional de {MAX_PORTFOLIO_LEVERAGE}x!")
