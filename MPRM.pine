@@ -2,7 +2,7 @@
 // © Jules
 
 //@version=5
-indicator("Market Physics Regime Model V3.2 (MPRM System)", overlay=true, max_labels_count=500)
+indicator("Market Physics Regime Model V3.3 (MPRM System)", overlay=true, max_labels_count=500)
 
 // ==========================================
 // 1. Inputs
@@ -105,6 +105,12 @@ z_chaos = get_z(chaos_raw, lookback_norm)
 // ==========================================
 // 5. Decision Logic
 // ==========================================
+// NEW V3.3: Physical Transition Gating
+// High-inertia trends are harder to disrupt without significant contrary force.
+contrary_impulse = (regime[1] == 0 and v < 0) or (regime[1] == 1 and v > 0)
+impulse_force = math.abs(v) * mass
+significant_contrary = contrary_impulse and impulse_force > ta.ema(impulse_force, lookback_c) * 2.0
+
 phi_ma = ta.sma(phi, 5)
 eff_ma = ta.sma(efficiency, 5)
 
@@ -153,11 +159,14 @@ float stay_prob_curr = array.get(transitions, regime * 5 + regime) / sum_t_curr
 
 // Hysteresis: Require a higher threshold to break a trend state
 // NEW V3.0: Dynamic Hysteresis based on Macro Coherence
+// NEW V3.3: Added physical gate (inertia_gate) to prevent flips during low-force pullbacks
 is_trend = regime == 0 or regime == 1
 current_trend_score = regime == 0 ? s_bull : s_bear
 macro_bias_boost = (regime == 0 and macro_rho > 0.5) or (regime == 1 and macro_rho < -0.5) ? 0.05 : 0.0
 stay_persistence = stay_prob_curr > markov_stay_thr ? 0.12 : 0.04
-exit_trend_gate = is_trend ? (raw_regime == regime or max_s > current_trend_score + hysteresis + stay_persistence + macro_bias_boost) : true
+
+inertia_gate = is_trend and not significant_contrary and coherence > 0.7 and phi > inertia
+exit_trend_gate = is_trend ? (raw_regime == regime or (max_s > current_trend_score + hysteresis + stay_persistence + macro_bias_boost and not inertia_gate)) : true
 
 if max_s > stability_thr and exit_trend_gate
     regime := raw_regime
@@ -183,9 +192,12 @@ else if trade_state[1] != 0
 else
     trade_peak_phi := 0.0
 
-// NEW V3.2: Increased PEAK resilience; requires exhaustion regime OR loss of structural coherence
+// NEW V3.3: Inertia-Persistence PEAK Exit
+// System only allows exit if Active Energy (phi) drops below the Stored Inertia (inertia) buffer.
+// This prevents exiting during high-coherence "resting" phases of a trend.
 bool trend_is_dominant = (regime == 0 and s_bull > s_exh + 0.20) or (regime == 1 and s_bear > s_exh + 0.20)
-bool cond_energy_peak_exit = trade_state[1] != 0 and phi < trade_peak_phi * (1 - energy_peak_thr) and not trend_is_dominant and (regime >= 2 or math.abs(rho) < 0.3)
+bool inertia_buffer_breached = phi < inertia
+bool cond_energy_peak_exit = trade_state[1] != 0 and phi < trade_peak_phi * (1 - energy_peak_thr) and inertia_buffer_breached and not trend_is_dominant and (regime >= 2 or math.abs(rho) < 0.3)
 
 // Secondary Conditions
 bool cond_warn_decel = (regime <= 1 or regime == 3) and ((v > 0 and a < 0) or (v < 0 and a > 0))
@@ -260,6 +272,9 @@ color c_chaos = color.new(color.purple, 85)
 color regime_color = regime == 0 ? c_bull : regime == 1 ? c_bear : regime == 2 ? c_comp : regime == 3 ? c_exh : c_chaos
 bgcolor(regime_color)
 
+// NEW V3.3: Visualizing the Inertia Buffer (Optional highlight when phi < inertia)
+plotshape(inertia_buffer_breached and trade_state != 0, "Inertia Buffer Breach", shape.circle, location.bottom, color.new(color.gray, 70), size=size.tiny)
+
 // NEW V2.7: Physics-Based Candle Coloring
 color body_color = regime == 0 ? color.new(color.green, 30) : regime == 1 ? color.new(color.red, 30) : regime == 2 ? color.new(color.blue, 30) : regime == 3 ? color.new(color.orange, 30) : color.new(color.purple, 30)
 color edge_color = v > 0 ? color.lime : color.maroon
@@ -269,9 +284,9 @@ plotcandle(use_phys_candles ? open : na, high, low, close, title="MPRM Candles",
 barcolor(not use_phys_candles ? (regime == 0 ? color.green : regime == 1 ? color.red : regime == 2 ? color.blue : regime == 3 ? color.orange : color.purple) : na)
 
 // Dashboard
-var table info_table = table.new(position.top_right, 2, 13, bgcolor = color.new(color.black, table_transp), border_width = 1, border_color = color.gray)
+var table info_table = table.new(position.top_right, 2, 14, bgcolor = color.new(color.black, table_transp), border_width = 1, border_color = color.gray)
 if barstate.islast
-    table.cell(info_table, 0, 0, "Regime (V3.2)", text_color = color.white)
+    table.cell(info_table, 0, 0, "Regime (V3.3)", text_color = color.white)
     table.cell(info_table, 1, 0, get_name(regime), text_color = color.white, bgcolor = regime_color)
 
     // NEW V2.6: Position Info
@@ -319,6 +334,11 @@ if barstate.islast
     table.cell(info_table, 1, 8, (r1 == -1 ? "N/A" : get_name(r1)) + " (" + str.tostring((m1 / sum_t) * 100, "##") + "%)", text_color = color.yellow, text_size = size.small)
     table.cell(info_table, 0, 9, "Next Likely #2", text_color = color.white, text_size = size.small)
     table.cell(info_table, 1, 9, (r2 == -1 ? "N/A" : get_name(r2)) + " (" + str.tostring((m2 / sum_t) * 100, "##") + "%)", text_color = color.gray, text_size = size.small)
+
+    // Physics Metrics
+    table.cell(info_table, 0, 10, "Energy / Inertia", text_color = color.white, text_size = size.small)
+    ei_ratio = phi / math.max(inertia, 1e-10)
+    table.cell(info_table, 1, 10, str.tostring(ei_ratio, "#.##"), text_color = ei_ratio > 1.0 ? color.lime : color.orange, text_size = size.small)
 
 // Plots
 plotshape(buy_signal, title="BUY", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.small, text="BUY")

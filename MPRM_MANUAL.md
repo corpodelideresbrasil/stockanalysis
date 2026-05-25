@@ -1,4 +1,4 @@
-# Manual do Usuário: Market Physics Regime Model (MPRM) V3.0
+# Manual do Usuário: Market Physics Regime Model (MPRM) V3.3
 
 O MPRM é um sistema físico-estocástico projetado para identificar regimes de mercado através de analogias com a mecânica clássica e termodinâmica. Em vez de utilizar indicadores técnicos tradicionais, o MPRM modela o preço como um corpo em movimento sujeito a forças de inércia, aceleração e coerência estrutural.
 
@@ -41,7 +41,7 @@ O sistema classifica o mercado em cinco estados principais, representados por co
 
 ## 3. Guia Operacional (Trading)
 
-O MPRM V2.8 inclui uma camada operacional explícita para facilitar a tomada de decisão:
+O MPRM V3.3 inclui uma camada operacional explícita para facilitar a tomada de decisão:
 
 ### 3.1 Entradas (Entry)
 *   **Sinal BUY (Triângulo Verde):** Ocorre quando o sistema transita para o regime **BULL TREND** vindo de estados de acúmulo (Compression) ou equilíbrio (Chaos).
@@ -53,11 +53,11 @@ O MPRM V2.8 inclui uma camada operacional explícita para facilitar a tomada de 
     2.  Surge um **Risco de Reversão** (‼) severo (combinação de exaustão, desaceleração e divergência).
     3.  O regime de tendência se inverte (ex: de BULL para BEAR) **E** a direção estrutural ($\rho$) confirma a inversão.
 
-**Novidade V3.0 (Macro Anchoring & Exhaustion Damping):**
-*   **Âncora Macro:** Introduzida correlação de longo prazo (200 períodos) para estabilizar o viés de tendência, evitando flips em pullbacks de médio prazo.
-*   **Damping de Exaustão:** O campo de exaustão agora é penalizado se o preço não estiver próximo de máximas/mínimas locais, eliminando sinais de exaustão "no meio do caminho".
-*   **Histerese Dinâmica:** A barreira para saída de uma tendência aumenta se a macro-coerência for favorável ao regime atual.
-*   **Refino de Inércia:** Aumentada a influência da inércia e correlação ($\rho$) na manutenção dos regimes TREND.
+**Novidade V3.3 (Inertia Persistence & Physical Gating):**
+*   **Filtro de Inércia (Inertia Buffer):** O sinal de saída antecipada (PEAK) agora exige que a Energia Ativa ($\Phi$) caia abaixo da Inércia Acumulada ($I$). Isso impede saídas prematuras em tendências fortes que estão apenas "respirando".
+*   **Gatilho de Transição Física (Physical Gating):** Impede que o sistema saia do regime de tendência por ruído estatístico se não houver um "Impulso Contrário" significativo (Força = Massa x Velocidade) superando a inércia atual.
+*   **Métrica de Eficiência Energética:** O dashboard agora exibe a razão Energia/Inércia. Valores > 1 indicam injeção ativa de energia; < 1 indicam movimento sustentado apenas por inércia.
+*   **Visualização de Breach:** Pequenos círculos cinzas na base do gráfico indicam quando a energia caiu abaixo da inércia (potencial enfraquecimento estrutural).
 
 ### 3.3 Avisos e Potenciais
 *   **Desaceleração (!):** Alerta que o preço continua subindo/descendo, mas a aceleração física já é contrária ao movimento.
@@ -86,4 +86,4 @@ O MPRM V2.8 inclui uma camada operacional explícita para facilitar a tomada de 
 
 O painel superior direito exibe a probabilidade estatística de transição.
 *   **Next Likely #1:** Indica para qual regime o mercado costuma ir a partir do estado atual, baseado em todo o histórico do gráfico.
-*   **Stay Probability:** Indica a persistência do regime atual. O V2.8 usa essa métrica dinamicamente para endurecer a saída de tendências estáveis.
+*   **Stay Probability:** Indica a persistência do regime atual. O V3.3 usa essa métrica dinamicamente para endurecer a saída de tendências estáveis.

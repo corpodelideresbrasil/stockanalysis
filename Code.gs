@@ -380,8 +380,8 @@ function gerarParametrosERecomendacoes() {
   shR.appendRow(["Ticker","Direção","Gatilho(%)","Fech. Anterior","Entrada","Acerto(%)","Ganho_Médio(%)","EV(%)","IC95_L(%)","Alvo"]);
   const recomends = comprasRecomendadas.concat(vendasRecomendadas);
   if (recomends.length){
-    // Ordena por Ganho (%) descendente
-    recomends.sort((a, b) => b[6] - a[6]);
+    // Ordena por Ticker (A-Z) conforme requisito de padronização
+    recomends.sort((a, b) => String(a[0]).localeCompare(String(b[0])));
 
     shR.getRange(2,1,recomends.length,recomends[0].length).setValues(recomends);
 
