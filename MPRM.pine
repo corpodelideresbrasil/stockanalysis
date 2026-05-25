@@ -2,7 +2,7 @@
 // © Jules
 
 //@version=5
-indicator("Market Physics Regime Model V3.4 (MPRM System)", overlay=true, max_labels_count=500)
+indicator("Market Physics Regime Model V3.4.2 (MPRM System)", overlay=true, max_labels_count=500)
 
 // ==========================================
 // 1. Inputs
@@ -69,14 +69,15 @@ get_name(r) =>
 rho = ta.correlation(close, bar_index, lookback_c)
 macro_rho = ta.correlation(close, bar_index, lookback_macro)
 
+// macro_guard: Structural bias filter
+macro_guard_long  = macro_rho > 0.1 and close > ta.ema(close, lookback_c)
+macro_guard_short = macro_rho < -0.1 and close < ta.ema(close, lookback_c)
+
 // f_confirm: Physical synergy between velocity and acceleration
-// NEW V2.8: Acceleration boosts trend if coherence is high (Power Move)
 f_accel_boost = (v > 0 and a > 0 and coherence > 0.8) or (v < 0 and a < 0 and coherence > 0.8) ? 1.2 : 1.0
 f_confirm = (v > 0 and a > 0) or (v < 0 and a < 0) ? 1.1 * f_accel_boost : (math.abs(rho) > 0.8 ? 1.0 : 0.8)
 trend_base = phi * math.sqrt(efficiency) * f_confirm
 
-// Directional logic based on rho (structural correlation) instead of single-bar v
-// NEW V3.1: Injected Velocity Momentum and reduced rho threshold for faster response
 v_momentum = ta.ema(v, 3)
 rho_weight_bull = math.max(0, rho) / 0.8
 rho_weight_bear = math.max(0, -rho) / 0.8
@@ -84,12 +85,9 @@ rho_weight_bear = math.max(0, -rho) / 0.8
 z_bull = get_z(rho > 0.05 ? (trend_base + inertia * 0.5 + v_momentum * 10) : -phi, lookback_norm) + (macro_rho > 0.3 ? 0.5 : 0)
 z_bear = get_z(rho < -0.05 ? (trend_base + inertia * 0.5 - v_momentum * 10) : -phi, lookback_norm) + (macro_rho < -0.3 ? 0.5 : 0)
 
-// NEW V2.9: Compression requires both low efficiency and declining structural energy
 phi_dropping_local = phi < ta.ema(phi, 5)
 z_comp = get_z(ep * (1 - efficiency) * (1 - math.abs(rho)) * (phi_dropping_local ? 1.2 : 0.5), lookback_norm)
 
-// Exhaustion: Defined as high acceleration/jerk coupled with low/declining structure
-// NEW V3.0: Exhaustion Damping - Penalize jerk if price is not near local extremes
 price_high = ta.highest(close, lookback_c)
 price_low  = ta.lowest(close, lookback_c)
 dist_to_high = (price_high - close) / math.max(ta.stdev(close, lookback_c), 1e-10)
@@ -108,7 +106,6 @@ z_chaos = get_z(chaos_raw, lookback_norm)
 var int regime = 4
 
 // NEW V3.3: Physical Transition Gating
-// High-inertia trends are harder to disrupt without significant contrary force.
 contrary_impulse = (regime[1] == 0 and v < 0) or (regime[1] == 1 and v > 0)
 impulse_force = math.abs(v) * mass
 significant_contrary = contrary_impulse and impulse_force > ta.ema(impulse_force, lookback_c) * 2.0
@@ -120,7 +117,6 @@ bool divergence_top = (close >= price_high) and (phi_ma < ta.highest(phi_ma, loo
 bool divergence_bot = (close <= price_low) and (phi_ma < ta.highest(phi_ma, lookback_c)[1] * (1 - div_sens) or eff_ma < ta.highest(eff_ma, lookback_c)[1] * (1 - div_sens))
 bool phys_exh = (close >= price_high and v > 0 and a < 0) or (close <= price_low and v < 0 and a > 0)
 
-// High-Risk Exh Injection
 z_exh = z_exh_base + (divergence_top or divergence_bot ? 1.0 : 0.0) + (phys_exh ? 0.5 : 0.0)
 
 float s_bull = 0.0, float s_bear = 0.0, float s_comp = 0.0, float s_exh = 0.0, float s_chaos = 0.0
@@ -145,10 +141,9 @@ else
 float max_s = math.max(s_bull, s_bear, s_comp, s_exh, s_chaos)
 int raw_regime = max_s == s_bull ? 0 : max_s == s_bear ? 1 : max_s == s_comp ? 2 : max_s == s_exh ? 3 : 4
 
-// Markov Probability Engine (Pre-calculation for Decision Gate)
+// Markov Probability Engine
 var float[] transitions = array.new_float(25, 0.0)
 
-// Helper to get transition stats for current regime
 get_markov_stats(r_idx, trans_arr) =>
     s_t = 0.0
     for i = 0 to 4
@@ -157,11 +152,8 @@ get_markov_stats(r_idx, trans_arr) =>
     p_stay = array.get(trans_arr, r_idx * 5 + r_idx) / s_t
     [s_t, p_stay]
 
-[sum_t_curr, stay_prob_curr] = get_markov_stats(regime[1], transitions)
+[sum_t_curr, stay_prob_curr] = get_markov_stats(nz(regime[1], 4), transitions)
 
-// Hysteresis: Require a higher threshold to break a trend state
-// NEW V3.0: Dynamic Hysteresis based on Macro Coherence
-// NEW V3.3: Added physical gate (inertia_gate) to prevent flips during low-force pullbacks
 is_trend = regime == 0 or regime == 1
 current_trend_score = regime == 0 ? s_bull : s_bear
 macro_bias_boost = (regime == 0 and macro_rho > 0.5) or (regime == 1 and macro_rho < -0.5) ? 0.05 : 0.0
@@ -181,11 +173,9 @@ var int trade_state = 0 // 0: Flat, 1: Long, -1: Short
 float sum_t = sum_t_curr
 float stay_prob = stay_prob_curr
 
-// NEW V3.1: More responsive regime entries
 bool cond_buy  = (regime == 0 and regime[1] != 0) or (regime == 0 and trade_state[1] == -1)
 bool cond_sell = (regime == 1 and regime[1] != 1) or (regime == 1 and trade_state[1] == 1)
 
-// NEW V2.7: Proactive Profit Taking (Energy Peak Tracking)
 var float trade_peak_phi = 0.0
 if trade_state[1] == 0 and (cond_buy or cond_sell)
     trade_peak_phi := phi
@@ -194,64 +184,49 @@ else if trade_state[1] != 0
 else
     trade_peak_phi := 0.0
 
-// NEW V3.4: Strong Trend Override & Inertia-Persistence PEAK Exit
-// Trend is considered dominant if the trend score is high relative to exhaustion, even if the current regime has shifted.
-// This prevents exiting during "resting" phases (Compression) or minor "Exhaustion" blips in a strong move.
-bool trend_is_dominant_long  = s_bull > s_exh + 0.15 and rho > 0.3
-bool trend_is_dominant_short = s_bear > s_exh + 0.15 and rho < -0.3
+// NEW V3.4.2: Final Strong Trend Override
+// Added "Fast Momentum" logic: if price is moving vertically (v_momentum) and supported by macro,
+// the trend is IMMUNE to noise-based exits.
+fast_momentum_long  = v_momentum > 0.005 and close > ta.ema(close, 10)
+fast_momentum_short = v_momentum < -0.005 and close < ta.ema(close, 10)
+
+bool trend_is_dominant_long  = (rho > 0.5) or (s_bull > s_exh + 0.05) or (fast_momentum_long and macro_guard_long)
+bool trend_is_dominant_short = (rho < -0.5) or (s_bear > s_exh + 0.05) or (fast_momentum_short and macro_guard_short)
 bool trend_is_dominant = (trade_state[1] == 1 and trend_is_dominant_long) or (trade_state[1] == -1 and trend_is_dominant_short)
 
 bool inertia_buffer_breached = phi < inertia
 bool cond_energy_peak_exit = trade_state[1] != 0 and phi < trade_peak_phi * (1 - energy_peak_thr) and inertia_buffer_breached and not trend_is_dominant and (regime >= 2 or math.abs(rho) < 0.3)
 
-// Secondary Conditions
 bool cond_warn_decel = (regime <= 1 or regime == 3) and ((v > 0 and a < 0) or (v < 0 and a > 0))
-// Tightened risk reversal: requires exhaustion z-score AND either deceleration or physical signals
-// V2.3: Lowered risk_sens impact for more protective exits but less aggressive filtering
 bool cond_risk_reversal = (regime <= 1) and (z_exh > risk_sens and (cond_warn_decel or phys_exh or divergence_top or divergence_bot))
 bool cond_breakout_setup = (regime == 2 or regime == 4) and efficiency > breakout_thr and phi > ta.sma(phi, lookback_norm)
 
-// Momentum Filtered Exits: Requires regime change + energy (phi) confirmation
-// NEW V3.2: Toughened exits to require structural breakdown (rho flip) or macro alignment loss
 bool phi_dropping = phi < ta.ema(phi, lookback_c)
 bool markov_gate = stay_prob < markov_stay_thr
 
-// Only flip position if correlation crosses zero strongly (structural change)
 bool flip_to_bear = trade_state[1] == 1 and rho < -0.3
 bool flip_to_bull = trade_state[1] == -1 and rho > 0.3
 
-// Exit Guard: Protects positions if macro trend is still supportive
-bool macro_guard_long  = macro_rho > 0.1 and close > ta.ema(close, lookback_c)
-bool macro_guard_short = macro_rho < -0.1 and close < ta.ema(close, lookback_c)
-
-// NEW V3.2: Replaced aggressive (regime >= 2) exit with (structural energy collapse + no macro guard)
 bool structural_break_long  = (regime >= 2 and phi < ta.sma(phi, lookback_norm) * 0.8) and not macro_guard_long and not trend_is_dominant_long
 bool structural_break_short = (regime >= 2 and phi < ta.sma(phi, lookback_norm) * 0.8) and not macro_guard_short and not trend_is_dominant_short
 
 bool force_exh_exit_long  = regime == 3 and (divergence_top or close >= price_high) and phi_dropping and not macro_guard_long and not trend_is_dominant_long
 bool force_exh_exit_short = regime == 3 and (divergence_bot or close <= price_low) and phi_dropping and not macro_guard_short and not trend_is_dominant_short
 
-bool cond_exit_long  = (regime == 3 and phi_dropping and markov_gate and not macro_guard_long and not trend_is_dominant_long) or force_exh_exit_long or cond_risk_reversal or flip_to_bear or structural_break_long or cond_energy_peak_exit
-bool cond_exit_short = (regime == 3 and phi_dropping and markov_gate and not macro_guard_short and not trend_is_dominant_short) or force_exh_exit_short or cond_risk_reversal or flip_to_bull or structural_break_short or cond_energy_peak_exit
+bool cond_exit_long  = (regime == 3 and phi_dropping and markov_gate and not macro_guard_long and not trend_is_dominant_long) or (force_exh_exit_long and not trend_is_dominant_long) or (cond_risk_reversal and not trend_is_dominant_long) or flip_to_bear or structural_break_long or cond_energy_peak_exit
+bool cond_exit_short = (regime == 3 and phi_dropping and markov_gate and not macro_guard_short and not trend_is_dominant_short) or (force_exh_exit_short and not trend_is_dominant_short) or (cond_risk_reversal and not trend_is_dominant_short) or flip_to_bull or structural_break_short or cond_energy_peak_exit
 
 bool buy_signal  = false
 bool sell_signal = false
 bool exit_long   = false
 bool exit_short  = false
-bool warn_decel  = false
-bool risk_reversal = false
-bool breakout_setup = false
 
-// State Transitions
-// NEW V3.1: Enable same-bar regime flips (Short -> Long / Long -> Short)
 if trade_state == 1 and cond_exit_long
     trade_state := 0
     exit_long := true
-
 if trade_state == -1 and cond_exit_short
     trade_state := 0
     exit_short := true
-
 if trade_state == 0
     if cond_buy
         trade_state := 1
@@ -259,11 +234,6 @@ if trade_state == 0
     else if cond_sell
         trade_state := -1
         sell_signal := true
-
-// Filtered Warnings (Only show if relevant to current trade)
-warn_decel := trade_state != 0 and cond_warn_decel
-risk_reversal := trade_state != 0 and cond_risk_reversal
-breakout_setup := trade_state == 0 and cond_breakout_setup
 
 // ==========================================
 // 7. Visual System
@@ -277,45 +247,23 @@ color c_chaos = color.new(color.purple, 85)
 color regime_color = regime == 0 ? c_bull : regime == 1 ? c_bear : regime == 2 ? c_comp : regime == 3 ? c_exh : c_chaos
 bgcolor(regime_color)
 
-// NEW V3.3: Visualizing the Inertia Buffer (Optional highlight when phi < inertia)
 plotshape(inertia_buffer_breached and trade_state != 0, "Inertia Buffer Breach", shape.circle, location.bottom, color.new(color.gray, 70), size=size.tiny)
 
-// NEW V2.7: Physics-Based Candle Coloring
 color body_color = regime == 0 ? color.new(color.green, 30) : regime == 1 ? color.new(color.red, 30) : regime == 2 ? color.new(color.blue, 30) : regime == 3 ? color.new(color.orange, 30) : color.new(color.purple, 30)
 color edge_color = v > 0 ? color.lime : color.maroon
 plotcandle(use_phys_candles ? open : na, high, low, close, title="MPRM Candles", color=body_color, wickcolor=edge_color, bordercolor=edge_color)
-
-// Fallback barcolor if physics candles are disabled
 barcolor(not use_phys_candles ? (regime == 0 ? color.green : regime == 1 ? color.red : regime == 2 ? color.blue : regime == 3 ? color.orange : color.purple) : na)
 
-// Dashboard
 var table info_table = table.new(position.top_right, 2, 14, bgcolor = color.new(color.black, table_transp), border_width = 1, border_color = color.gray)
 if barstate.islast
-    table.cell(info_table, 0, 0, "Regime (V3.4)", text_color = color.white)
+    table.cell(info_table, 0, 0, "Regime (V3.4.2)", text_color = color.white)
     table.cell(info_table, 1, 0, get_name(regime), text_color = color.white, bgcolor = regime_color)
-
-    // NEW V2.6: Position Info
     pos_text = trade_state == 1 ? "LONG" : trade_state == -1 ? "SHORT" : "FLAT"
     pos_color = trade_state == 1 ? color.green : trade_state == -1 ? color.red : color.gray
     table.cell(info_table, 0, 1, "Position", text_color = color.white)
     table.cell(info_table, 1, 1, pos_text, text_color = color.white, bgcolor = pos_color)
 
-    label_type = use_softmax ? "P(" : "S("
-    table.cell(info_table, 0, 2, label_type + "Bull)", text_color = color.white)
-    table.cell(info_table, 1, 2, str.tostring(s_bull * 100, "##.#") + "%", text_color = s_bull > stability_thr ? color.green : color.white)
-    table.cell(info_table, 0, 3, label_type + "Bear)", text_color = color.white)
-    table.cell(info_table, 1, 3, str.tostring(s_bear * 100, "##.#") + "%", text_color = s_bear > stability_thr ? color.red : color.white)
-    table.cell(info_table, 0, 4, label_type + "Comp)", text_color = color.white)
-    table.cell(info_table, 1, 4, str.tostring(s_comp * 100, "##.#") + "%", text_color = s_comp > stability_thr ? color.blue : color.white)
-    table.cell(info_table, 0, 5, label_type + "Exh)", text_color = color.white)
-    table.cell(info_table, 1, 5, str.tostring(s_exh * 100, "##.#") + "%", text_color = s_exh > stability_thr ? color.orange : color.white)
-    table.cell(info_table, 0, 6, label_type + "Chaos)", text_color = color.white)
-    table.cell(info_table, 1, 6, str.tostring(s_chaos * 100, "##.#") + "%", text_color = s_chaos > stability_thr ? color.purple : color.white)
-
-    // Markov Prediction (Re-calculate for Display using current regime)
     [sum_t_display, stay_prob_display] = get_markov_stats(regime, transitions)
-
-    // Find most likely next (excluding current)
     float m1 = -1.0, float m2 = -1.0
     int r1 = -1, int r2 = -1
     for i = 0 to 4
@@ -332,38 +280,18 @@ if barstate.islast
     table.cell(info_table, 1, 7, str.tostring(stay_prob_display * 100, "##") + "%", text_color = color.aqua, text_size = size.small)
     table.cell(info_table, 0, 8, "Next Likely #1", text_color = color.white, text_size = size.small)
     table.cell(info_table, 1, 8, (r1 == -1 ? "N/A" : get_name(r1)) + " (" + str.tostring((m1 / sum_t_display) * 100, "##") + "%)", text_color = color.yellow, text_size = size.small)
-    table.cell(info_table, 0, 9, "Next Likely #2", text_color = color.white, text_size = size.small)
-    table.cell(info_table, 1, 9, (r2 == -1 ? "N/A" : get_name(r2)) + " (" + str.tostring((m2 / sum_t_display) * 100, "##") + "%)", text_color = color.gray, text_size = size.small)
 
-    // Physics Metrics
-    table.cell(info_table, 0, 10, "Energy / Inertia", text_color = color.white, text_size = size.small)
-    ei_ratio = phi / math.max(inertia, 1e-10)
-    table.cell(info_table, 1, 10, str.tostring(ei_ratio, "#.##"), text_color = ei_ratio > 1.0 ? color.lime : color.orange, text_size = size.small)
-
-// Plots
 plotshape(buy_signal, title="BUY", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.small, text="BUY")
 plotshape(sell_signal, title="SELL", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.small, text="SELL")
 plotshape(exit_long, title="EXIT LONG", style=shape.xcross, location=location.abovebar, color=color.white, size=size.tiny, text="EXIT")
 plotshape(exit_short, title="EXIT SHORT", style=shape.xcross, location=location.belowbar, color=color.white, size=size.tiny, text="EXIT")
-plotshape(trade_state[1] != 0 and cond_energy_peak_exit, title="Energy Peak Exit", style=shape.labeldown, location=location.abovebar, color=color.new(color.yellow, 50), size=size.tiny, text="PEAK")
 
-plotchar(warn_decel, title="Deceleration", char="!", location=location.abovebar, color=color.yellow, size=size.tiny)
-plotchar(risk_reversal, title="Reversal Risk", char="‼", location=location.abovebar, color=color.red, size=size.small)
+plotchar(trade_state != 0 and cond_warn_decel, title="Deceleration", char="!", location=location.abovebar, color=color.yellow, size=size.tiny)
+plotchar(trade_state != 0 and cond_risk_reversal, title="Reversal Risk", char="‼", location=location.abovebar, color=color.red, size=size.small)
 plotchar(divergence_top, title="Top Divergence", char="D", location=location.abovebar, color=color.fuchsia, size=size.tiny)
 plotchar(divergence_bot, title="Bottom Divergence", char="D", location=location.belowbar, color=color.fuchsia, size=size.tiny)
-plotchar(breakout_setup, title="Breakout Potential", char="⊙", location=location.belowbar, color=color.aqua, size=size.tiny)
+plotchar(trade_state == 0 and cond_breakout_setup, title="Breakout Potential", char="⊙", location=location.belowbar, color=color.aqua, size=size.tiny)
 
-// Alerts
-alertcondition(buy_signal, "Buy Signal", "MPRM: Bull Trend Detected")
-alertcondition(sell_signal, "Sell Signal", "MPRM: Bear Trend Detected")
-alertcondition(risk_reversal, "Reversal Risk", "MPRM: High Reversal Risk")
-
-// ==========================================
-// 8. Final State Update (RECORD TRANSITION)
-// ==========================================
-// We record the transition at the very end of the script execution.
-// regime[1] is the state from the previous bar.
-// regime is the state we just calculated for the current bar.
 if bar_index > 0
     idx_trans = regime[1] * 5 + regime
     array.set(transitions, idx_trans, array.get(transitions, idx_trans) + 1)
