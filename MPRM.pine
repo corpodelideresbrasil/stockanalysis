@@ -2,7 +2,7 @@
 // © Jules
 
 //@version=5
-indicator("Market Physics Regime Model V3.0 (MPRM System)", overlay=true, max_labels_count=500)
+indicator("Market Physics Regime Model V3.1 (MPRM System)", overlay=true, max_labels_count=500)
 
 // ==========================================
 // 1. Inputs
@@ -76,9 +76,13 @@ f_confirm = (v > 0 and a > 0) or (v < 0 and a < 0) ? 1.1 * f_accel_boost : (math
 trend_base = phi * math.sqrt(efficiency) * f_confirm
 
 // Directional logic based on rho (structural correlation) instead of single-bar v
-// NEW V3.0: Added Macro Regime Bias (macro_rho) to anchor trend direction
-z_bull = get_z(rho > 0.15 ? (trend_base + inertia * 0.5) : -phi, lookback_norm) + (macro_rho > 0.3 ? 0.5 : 0)
-z_bear = get_z(rho < -0.15 ? (trend_base + inertia * 0.5) : -phi, lookback_norm) + (macro_rho < -0.3 ? 0.5 : 0)
+// NEW V3.1: Injected Velocity Momentum and reduced rho threshold for faster response
+v_momentum = ta.ema(v, 3)
+rho_weight_bull = math.max(0, rho) / 0.8
+rho_weight_bear = math.max(0, -rho) / 0.8
+
+z_bull = get_z(rho > 0.05 ? (trend_base + inertia * 0.5 + v_momentum * 10) : -phi, lookback_norm) + (macro_rho > 0.3 ? 0.5 : 0)
+z_bear = get_z(rho < -0.05 ? (trend_base + inertia * 0.5 - v_momentum * 10) : -phi, lookback_norm) + (macro_rho < -0.3 ? 0.5 : 0)
 
 // NEW V2.9: Compression requires both low efficiency and declining structural energy
 phi_dropping_local = phi < ta.ema(phi, 5)
@@ -166,8 +170,9 @@ var int trade_state = 0 // 0: Flat, 1: Long, -1: Short
 float sum_t = sum_t_curr
 float stay_prob = stay_prob_curr
 
-bool cond_buy  = (regime == 0 and regime[1] != 0)
-bool cond_sell = (regime == 1 and regime[1] != 1)
+// NEW V3.1: More responsive regime entries
+bool cond_buy  = (regime == 0 and regime[1] != 0) or (regime == 0 and trade_state[1] == -1)
+bool cond_sell = (regime == 1 and regime[1] != 1) or (regime == 1 and trade_state[1] == 1)
 
 // NEW V2.7: Proactive Profit Taking (Energy Peak Tracking)
 var float trade_peak_phi = 0.0
@@ -211,18 +216,16 @@ bool risk_reversal = false
 bool breakout_setup = false
 
 // State Transitions
-bool just_exited = false
+// NEW V3.1: Enable same-bar regime flips (Short -> Long / Long -> Short)
 if trade_state == 1 and cond_exit_long
     trade_state := 0
     exit_long := true
-    just_exited := true
 
 if trade_state == -1 and cond_exit_short
     trade_state := 0
     exit_short := true
-    just_exited := true
 
-if trade_state == 0 and not just_exited
+if trade_state == 0
     if cond_buy
         trade_state := 1
         buy_signal := true
@@ -258,7 +261,7 @@ barcolor(not use_phys_candles ? (regime == 0 ? color.green : regime == 1 ? color
 // Dashboard
 var table info_table = table.new(position.top_right, 2, 13, bgcolor = color.new(color.black, table_transp), border_width = 1, border_color = color.gray)
 if barstate.islast
-    table.cell(info_table, 0, 0, "Regime (V3.0)", text_color = color.white)
+    table.cell(info_table, 0, 0, "Regime (V3.1)", text_color = color.white)
     table.cell(info_table, 1, 0, get_name(regime), text_color = color.white, bgcolor = regime_color)
 
     // NEW V2.6: Position Info
