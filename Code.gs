@@ -378,6 +378,7 @@ function gerarParametrosERecomendacoes() {
   const shR = upsertSheet(ss, "Recomendacoes_diarias");
   shR.clear();
   shR.appendRow(["Ticker","Direção","Gatilho(%)","Fech. Anterior","Entrada","Acerto(%)","Ganho_Médio(%)","EV(%)","IC95_L(%)","Alvo"]);
+  const recomends = comprasRecomendadas.concat(vendasRecomendadas);
   if (recomends.length){
     // Ordena por Ganho (%) descendente
     recomends.sort((a, b) => b[6] - a[6]);

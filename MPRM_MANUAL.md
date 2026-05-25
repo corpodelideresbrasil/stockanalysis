@@ -9,7 +9,7 @@ O MPRM é um sistema físico-stocástico projetado para identificar regimes de m
 O modelo baseia-se em quatro pilares fundamentais:
 
 ### 1.1 Cinemática (Movimento)
-*   **Velocidade ($v$):** Variação do preço no tempo ($P_t - P_{t-1}$).
+*   **Velocidade ($v$):** Variação logarítmica do preço no tempo ($\ln(P_t / P_{t-1})$). Isso torna o modelo invariante à escala de preço do ativo.
 *   **Aceleração ($a$):** Taxa de variação da velocidade. Determina se o movimento está ganhando ou perdendo força.
 *   **Jerk ($j$):** Taxa de variação da aceleração. Mede a instabilidade e "vibração" do sistema.
 
@@ -44,9 +44,9 @@ O MPRM V2.1 inclui uma camada operacional explícita para facilitar a tomada de 
 *   **Sinal SELL (Triângulo Vermelho):** Ocorre quando o sistema transita para o regime **BEAR TREND**.
 
 ### 3.2 Saídas (Exit)
-*   **Sinal EXIT (X Branco):** Indica o fechamento da posição. Ocorre em três situações:
-    1.  O sistema detecta **Exaustão** física (Orange).
-    2.  Surge um **Risco de Reversão** (‼) severo.
+*   **Sinal EXIT (X Branco):** Indica o fechamento da posição. Ocorre em três situações principais:
+    1.  O sistema detecta **Exaustão** física (Orange) **E** a energia estrutural ($\Phi$) está em queda.
+    2.  Surge um **Risco de Reversão** (‼) severo (combinação de exaustão, desaceleração e divergência).
     3.  O regime de tendência se inverte (ex: de BULL para BEAR).
 
 ### 3.3 Avisos e Potenciais
