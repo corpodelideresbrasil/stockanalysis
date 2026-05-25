@@ -65,6 +65,35 @@ def main():
 
     print("=" * 130)
 
+    # Gerenciamento Manual de Posições
+    if latest_open:
+        print("\n" + "-" * 40)
+        print("🛠️ GERENCIAMENTO MANUAL")
+        ans_m = input("Deseja encerrar alguma posição manualmente? (s/n): ")
+        if ans_m.lower() == 's':
+            tk_list = list(latest_open.keys())
+            for i, tk in enumerate(tk_list):
+                print(f"[{i}] {tk}")
+
+            try:
+                idx = int(input("Escolha o número do ativo: "))
+                symbol = tk_list[idx]
+                pct = float(input("Porcentagem para fechar (0.1 a 1.0): "))
+
+                # Get current price for exit log
+                current_price = 0
+                for r in results:
+                    if r['symbol'] == symbol:
+                        current_price = r.get('entry', 0) # Use last price from scanner
+
+                if scanner.pos_engine.close_position(symbol, "MANUAL_EXIT", current_price, partial_pct=pct):
+                    print(f"✅ Posição {symbol} reduzida/encerrada com sucesso!")
+                else:
+                    print("❌ Falha ao encerrar posição.")
+            except:
+                print("⚠️ Entrada inválida.")
+
+    # Auto-Open signals
     new_entries = [r for r in results if r['action'] == 'ENTER']
     if new_entries:
         if current_leverage >= MAX_PORTFOLIO_LEVERAGE:

@@ -49,14 +49,30 @@ class PositionEngine:
         self._save_positions()
         return True
 
-    def close_position(self, symbol, reason, price):
-        if symbol in self.positions:
-            self.positions[symbol]['status'] = 'CLOSED'
-            self.positions[symbol]['exit_reason'] = reason
-            self.positions[symbol]['exit_price'] = price
-            self._save_positions()
-            return True
-        return False
+    def close_position(self, symbol, reason, price, partial_pct=1.0):
+        """
+        Closes a position fully (default) or partially.
+        partial_pct: float between 0 and 1 (e.g. 0.5 for 50% closure)
+        """
+        if symbol not in self.positions or self.positions[symbol]['status'] != 'OPEN':
+            return False
+
+        pos = self.positions[symbol]
+
+        if partial_pct >= 1.0:
+            pos['status'] = 'CLOSED'
+            pos['exit_reason'] = reason
+            pos['exit_price'] = price
+        else:
+            # Partial reduction
+            reduction_factor = 1.0 - partial_pct
+            pos['size'] *= reduction_factor
+            pos['margin_used'] *= reduction_factor
+            pos['notional'] *= reduction_factor
+            pos['partial_exit_reason'] = f"Reduced {partial_pct*100}% - {reason}"
+
+        self._save_positions()
+        return True
 
     def update_position(self, symbol, updates):
         if symbol in self.positions:
