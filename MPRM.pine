@@ -109,8 +109,12 @@ if max_score > stability_thr and exit_trend_gate
 // ==========================================
 // 7. Anticipatory Warnings
 // ==========================================
+// Energy-Price Divergence: Price making new highs but Phi or Efficiency dropping
+bool divergence_top = ta.highest(close, lookback_c) == close and (phi < ta.highest(phi, lookback_c) or efficiency < ta.highest(efficiency, lookback_c))
+bool divergence_bot = ta.lowest(close, lookback_c) == close and (phi < ta.highest(phi, lookback_c) or efficiency < ta.highest(efficiency, lookback_c))
+
 bool warn_decel = regime == 0 and ((v > 0 and a < 0) or (v < 0 and a > 0))
-bool risk_reversal = (regime == 0 or regime == 2) and (z_exh > 1.5 or (warn_decel and z_exh > 0))
+bool risk_reversal = (regime == 0 or regime == 2) and (z_exh > 1.5 or (warn_decel and z_exh > 0) or divergence_top or divergence_bot)
 bool breakout_potential = (regime == 1 or regime == 3) and efficiency > 0.6 and phi > ta.sma(phi, lookback_norm)
 
 // ==========================================
@@ -131,10 +135,9 @@ barcolor(regime == 0 ? color.green : regime == 1 ? color.blue : regime == 2 ? co
 
 // Markov Transitions Tracking
 var float[] transitions = array.new_float(16, 0.0) // 4x4 matrix
-var int last_regime = regime
-if regime != last_regime[1]
+if bar_index > 0 and regime != regime[1]
     // index = last_regime * 4 + current_regime
-    idx = last_regime[1] * 4 + regime
+    idx = regime[1] * 4 + regime
     array.set(transitions, idx, array.get(transitions, idx) + 1)
 
 // Dashboard
@@ -145,16 +148,16 @@ if barstate.islast
 
     label_type = use_softmax ? "P(" : "S("
     table.cell(info_table, 0, 1, label_type + "Trend)", text_color = color.white)
-    table.cell(info_table, 1, 1, str.tostring(score_trend * (use_softmax ? 100 : 1), use_softmax ? "##.#%" : "#.##"), text_color = score_trend > stability_thr ? color.green : color.white)
+    table.cell(info_table, 1, 1, str.tostring(score_trend, use_softmax ? "##.#%" : "#.##"), text_color = score_trend > stability_thr ? color.green : color.white)
 
     table.cell(info_table, 0, 2, label_type + "Comp)", text_color = color.white)
-    table.cell(info_table, 1, 2, str.tostring(score_comp * (use_softmax ? 100 : 1), use_softmax ? "##.#%" : "#.##"), text_color = score_comp > stability_thr ? color.blue : color.white)
+    table.cell(info_table, 1, 2, str.tostring(score_comp, use_softmax ? "##.#%" : "#.##"), text_color = score_comp > stability_thr ? color.blue : color.white)
 
     table.cell(info_table, 0, 3, label_type + "Exh)", text_color = color.white)
-    table.cell(info_table, 1, 3, str.tostring(score_exh * (use_softmax ? 100 : 1), use_softmax ? "##.#%" : "#.##"), text_color = score_exh > stability_thr ? color.orange : color.white)
+    table.cell(info_table, 1, 3, str.tostring(score_exh, use_softmax ? "##.#%" : "#.##"), text_color = score_exh > stability_thr ? color.orange : color.white)
 
     table.cell(info_table, 0, 4, label_type + "Chaos)", text_color = color.white)
-    table.cell(info_table, 1, 4, str.tostring(score_chaos * (use_softmax ? 100 : 1), use_softmax ? "##.#%" : "#.##"), text_color = score_chaos > stability_thr ? color.purple : color.white)
+    table.cell(info_table, 1, 4, str.tostring(score_chaos, use_softmax ? "##.#%" : "#.##"), text_color = score_chaos > stability_thr ? color.purple : color.white)
 
     table.cell(info_table, 0, 5, "Efficiency (η)", text_color = color.white)
     table.cell(info_table, 1, 5, str.tostring(efficiency, "#.##"), text_color = color.white)
@@ -176,15 +179,31 @@ if barstate.islast
     table.cell(info_table, 0, 8, "Stay " + (regime == 0 ? "Trend" : regime == 1 ? "Comp" : regime == 2 ? "Exh" : "Chaos"), text_color = color.white, text_size = size.small)
     table.cell(info_table, 1, 8, str.tostring((array.get(transitions, regime * 4 + regime) / total_t) * 100, "##") + "%", text_color = color.white, text_size = size.small)
 
-    // Most likely transition
-    float max_t = math.max(s0, s1, s2, s3)
-    int next_likely = s0 == max_t ? 0 : s1 == max_t ? 1 : s2 == max_t ? 2 : 3
+    // Find two most likely next regimes (excluding staying in current)
+    float t0 = (regime == 0) ? -1 : s0
+    float t1 = (regime == 1) ? -1 : s1
+    float t2 = (regime == 2) ? -1 : s2
+    float t3 = (regime == 3) ? -1 : s3
 
-    table.cell(info_table, 0, 9, "Likely Next", text_color = color.white, text_size = size.small)
-    table.cell(info_table, 1, 9, (next_likely == 0 ? "TREND" : next_likely == 1 ? "COMP" : next_likely == 2 ? "EXH" : "CHAOS"), text_color = color.yellow, text_size = size.small)
+    float max1 = math.max(t0, t1, t2, t3)
+    int r1 = t0 == max1 ? 0 : t1 == max1 ? 1 : t2 == max1 ? 2 : 3
 
-    table.cell(info_table, 0, 10, "Stability", text_color = color.white, text_size = size.small)
-    table.cell(info_table, 1, 10, str.tostring(max_score, "#.##"), text_color = max_score > stability_thr ? color.green : color.red, text_size = size.small)
+    float t0_2 = (r1 == 0 or regime == 0) ? -1 : s0
+    float t1_2 = (r1 == 1 or regime == 1) ? -1 : s1
+    float t2_2 = (r1 == 2 or regime == 2) ? -1 : s2
+    float t3_2 = (r1 == 3 or regime == 3) ? -1 : s3
+
+    float max2 = math.max(t0_2, t1_2, t2_2, t3_2)
+    int r2 = t0_2 == max2 ? 0 : t1_2 == max2 ? 1 : t2_2 == max2 ? 2 : 3
+
+    get_name(r) => r == 0 ? "TREND" : r == 1 ? "COMP" : r == 2 ? "EXH" : "CHAOS"
+
+    table.cell(info_table, 0, 9, "Next Likely #1", text_color = color.white, text_size = size.small)
+    table.cell(info_table, 1, 9, get_name(r1) + " (" + str.tostring((array.get(transitions, regime * 4 + r1) / total_t) * 100, "##") + "%)", text_color = color.yellow, text_size = size.small)
+
+    table.cell(info_table, 0, 10, "Next Likely #2", text_color = color.white, text_size = size.small)
+    table.cell(info_table, 1, 10, get_name(r2) + " (" + str.tostring((array.get(transitions, regime * 4 + r2) / total_t) * 100, "##") + "%)", text_color = color.gray, text_size = size.small)
+
 
 // Signals
 plotshape(regime == 0 and regime[1] != 0, title="Enter Trend", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.small, text="TREND")
@@ -192,6 +211,7 @@ plotshape(regime == 2 and regime[1] != 2, title="Exhaustion", style=shape.triang
 plotshape(regime == 3 and regime[1] != 3, title="Chaos", style=shape.xcross, location=location.abovebar, color=color.purple, size=size.tiny, text="CHAOS")
 plotchar(warn_decel, title="Deceleration", char="!", location=location.abovebar, color=color.yellow, size=size.tiny)
 plotchar(risk_reversal, title="Reversal Risk", char="‼", location=location.abovebar, color=color.red, size=size.small)
+plotchar(divergence_top or divergence_bot, title="Energy Divergence", char="D", location=location.abovebar, color=color.fuchsia, size=size.tiny)
 plotchar(breakout_potential, title="Breakout Potential", char="⊙", location=location.belowbar, color=color.aqua, size=size.tiny)
 
 // Alerts
