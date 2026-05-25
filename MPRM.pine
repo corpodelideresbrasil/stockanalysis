@@ -2,7 +2,7 @@
 // © Jules
 
 //@version=5
-indicator("Market Physics Regime Model V2.8 (MPRM System)", overlay=true, max_labels_count=500)
+indicator("Market Physics Regime Model V2.9 (MPRM System)", overlay=true, max_labels_count=500)
 
 // ==========================================
 // 1. Inputs
@@ -74,10 +74,13 @@ f_confirm = (v > 0 and a > 0) or (v < 0 and a < 0) ? 1.1 * f_accel_boost : (math
 trend_base = phi * math.sqrt(efficiency) * f_confirm
 
 // Directional logic based on rho (structural correlation) instead of single-bar v
-z_bull = get_z(rho > 0.2 ? trend_base : -phi, lookback_norm)
-z_bear = get_z(rho < -0.2 ? trend_base : -phi, lookback_norm)
+// NEW V2.9: Increased weight of inertia and rho for trend persistence
+z_bull = get_z(rho > 0.15 ? (trend_base + inertia * 0.5) : -phi, lookback_norm)
+z_bear = get_z(rho < -0.15 ? (trend_base + inertia * 0.5) : -phi, lookback_norm)
 
-z_comp = get_z(ep * (1 - efficiency) * (1 - math.abs(rho)), lookback_norm)
+// NEW V2.9: Compression requires both low efficiency and declining structural energy
+phi_dropping_local = phi < ta.ema(phi, 5)
+z_comp = get_z(ep * (1 - efficiency) * (1 - math.abs(rho)) * (phi_dropping_local ? 1.2 : 0.5), lookback_norm)
 
 // Exhaustion: Defined as high acceleration/jerk coupled with low/declining structure
 // NEW V2.8: High acceleration with high coherence is now a Trend reinforcement, not exhaustion
@@ -139,10 +142,10 @@ sum_t_curr := math.max(sum_t_curr, 1)
 float stay_prob_curr = array.get(transitions, regime * 5 + regime) / sum_t_curr
 
 // Hysteresis: Require a higher threshold to break a trend state
-// NEW V2.8: Dynamic hysteresis based on Markov stay probability
+// NEW V2.9: Hardened hysteresis for Trend regimes to bridge volatility gaps
 is_trend = regime == 0 or regime == 1
 current_trend_score = regime == 0 ? s_bull : s_bear
-stay_persistence = stay_prob_curr > markov_stay_thr ? 0.05 : 0.0
+stay_persistence = stay_prob_curr > markov_stay_thr ? 0.12 : 0.04
 exit_trend_gate = is_trend ? (raw_regime == regime or max_s > current_trend_score + hysteresis + stay_persistence) : true
 
 if max_s > stability_thr and exit_trend_gate
@@ -168,8 +171,8 @@ else if trade_state[1] != 0
 else
     trade_peak_phi := 0.0
 
-// NEW V2.8: Suppress PEAK exit if Trend probability is still significantly dominant
-bool trend_is_dominant = (regime == 0 and s_bull > s_exh + 0.2) or (regime == 1 and s_bear > s_exh + 0.2)
+// NEW V2.9: Tightened PEAK suppression to ensure trend dominance is truly weakening
+bool trend_is_dominant = (regime == 0 and s_bull > s_exh + 0.15) or (regime == 1 and s_bear > s_exh + 0.15)
 bool cond_energy_peak_exit = trade_state[1] != 0 and phi < trade_peak_phi * (1 - energy_peak_thr) and not trend_is_dominant
 
 // Secondary Conditions

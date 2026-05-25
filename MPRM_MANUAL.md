@@ -1,4 +1,4 @@
-# Manual do Usuário: Market Physics Regime Model (MPRM) V2.8
+# Manual do Usuário: Market Physics Regime Model (MPRM) V2.9
 
 O MPRM é um sistema físico-estocástico projetado para identificar regimes de mercado através de analogias com a mecânica clássica e termodinâmica. Em vez de utilizar indicadores técnicos tradicionais, o MPRM modela o preço como um corpo em movimento sujeito a forças de inércia, aceleração e coerência estrutural.
 
@@ -53,7 +53,11 @@ O MPRM V2.8 inclui uma camada operacional explícita para facilitar a tomada de 
     2.  Surge um **Risco de Reversão** (‼) severo (combinação de exaustão, desaceleração e divergência).
     3.  O regime de tendência se inverte (ex: de BULL para BEAR) **E** a direção estrutural ($\rho$) confirma a inversão.
 
-**Novidade V2.8 (Power Move Protection):** O sistema agora diferencia "Aceleração de Tendência" de "Aceleração de Exaustão". Se a Coerência ($C$) for alta, picos de aceleração reforçam o regime de tendência em vez de disparar exaustão precoce. As saídas por pico de energia (**PEAK**) são suprimidas se a probabilidade da tendência atual for significativamente maior que a de exaustão.
+**Novidade V2.9 (Persistence & Gating Refinements):**
+*   **Refino de Inércia:** Aumentada a influência da inércia e correlação ($\rho$) na manutenção dos regimes TREND, evitando inversões precipitadas em pullbacks voláteis.
+*   **Gatilho de Compressão:** Agora exige queda real na energia estrutural local, evitando sinais falsos de COMPRESSION durante consolidações de alta energia.
+*   **Histerese Endurecida:** Maior persistência em tendências estáveis baseada na memória estatística (Markov).
+*   **Supressão PEAK:** Refinada a proteção contra saídas precoces por pico de energia quando a dominância da tendência ainda é robusta.
 
 ### 3.3 Avisos e Potenciais
 *   **Desaceleração (!):** Alerta que o preço continua subindo/descendo, mas a aceleração física já é contrária ao movimento.
