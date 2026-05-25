@@ -57,6 +57,9 @@ get_z(src, len) =>
 
 sigmoid(x) => 1 / (1 + math.exp(-x))
 
+get_name(r) =>
+    r == 0 ? "TREND" : r == 1 ? "COMP" : r == 2 ? "EXH" : "CHAOS"
+
 // ==========================================
 // 5. Regime Fields (Raw Z-Scores)
 // ==========================================
@@ -212,8 +215,6 @@ if barstate.islast
 
     float max2 = math.max(t0_2, t1_2, t2_2, t3_2)
     int r2 = t0_2 == max2 ? 0 : t1_2 == max2 ? 1 : t2_2 == max2 ? 2 : 3
-
-    get_name(r) => r == 0 ? "TREND" : r == 1 ? "COMP" : r == 2 ? "EXH" : "CHAOS"
 
     table.cell(info_table, 0, 9, "Next Likely #1", text_color = color.white, text_size = size.small)
     table.cell(info_table, 1, 9, get_name(r1) + " (" + str.tostring((array.get(transitions, regime * 4 + r1) / total_t) * 100, "##") + "%)", text_color = color.yellow, text_size = size.small)
