@@ -1,4 +1,4 @@
-# Manual do Usuário: Market Physics Regime Model (MPRM)
+# Manual do Usuário: Market Physics Regime Model (MPRM) V2.1
 
 O MPRM é um sistema físico-stocástico projetado para identificar regimes de mercado através de analogias com a mecânica clássica e termodinâmica. Em vez de utilizar indicadores técnicos tradicionais, o MPRM modela o preço como um corpo em movimento sujeito a forças de inércia, aceleração e coerência estrutural.
 
@@ -12,50 +12,61 @@ O modelo baseia-se em quatro pilares fundamentais:
 *   **Velocidade ($v$):** Variação do preço no tempo ($P_t - P_{t-1}$).
 *   **Aceleração ($a$):** Taxa de variação da velocidade. Determina se o movimento está ganhando ou perdendo força.
 *   **Jerk ($j$):** Taxa de variação da aceleração. Mede a instabilidade e "vibração" do sistema.
-*   **Vetor Projetado ($v_{proj}$):** Estimativa da próxima posição baseada na velocidade e aceleração atuais ($v + a$).
 
 ### 1.2 Dinâmica e Energia
-*   **Energia Cinética ($E_k$):** Intensidade direcional do movimento ($v^2$).
+*   **Energia Estrutural ($\Phi$):** Intensidade direcional do movimento ponderada pela coerência.
 *   **Eficiência ($\eta$):** Razão entre o deslocamento líquido e o caminho total percorrido. Alta eficiência indica uma tendência clara; baixa eficiência indica ruído/caos.
-*   **Inércia ($I$):** Persistência do movimento, calculada como uma média ponderada do momentum (volatilidade $\times$ velocidade).
+*   **Inércia ($I$):** Persistência do movimento, calculada como uma média ponderada do momentum.
 *   **Coerência Estrutural ($C$):** Grau de organização do movimento, medido pela correlação entre preço e tempo.
 
 ---
 
 ## 2. Regimes de Mercado (Legenda de Cores)
 
-O sistema classifica o mercado em quatro estados principais, representados por cores no fundo e nas barras:
+O sistema classifica o mercado em cinco estados principais, representados por cores no fundo e nas barras:
 
 | Regime | Cor | Descrição Física | Comportamento Esperado |
 | :--- | :--- | :--- | :--- |
-| **TREND** | 🟩 Verde | Alta Energia + Alta Coerência + Aceleração Confirmada. | Tendência estruturada e persistente. |
+| **BULL TREND** | 🟩 Verde | Alta Energia + Coerência Positiva + Aceleração Confirmada. | Tendência de alta estruturada. |
+| **BEAR TREND** | 🟥 Vermelho | Alta Energia + Coerência Negativa + Aceleração Confirmada. | Tendência de baixa estruturada. |
 | **COMPRESSION** | 🟦 Azul | Baixa Energia + Baixa Volatilidade + Alta Coerência. | Acúmulo de energia potencial para um rompimento. |
-| **EXHAUSTION** | 🟧 Laranja | Alta Instabilidade ($j$) + Perda de Eficiência. | Risco iminente de exaustão e reversão. |
-| **CHAOS** | 🟪 Roxo | Baixa Coerência + Baixa Eficiência + Alta Turbulência. | Ruído dominante, sem direção clara (Lateralidade errática). |
+| **EXHAUSTION** | 🟧 Laranja | Alta Instabilidade ($j$) + Perda de Eficiência + Divergência. | Risco iminente de exaustão e reversão. |
+| **CHAOS** | 🟪 Roxo | Baixa Coerência + Baixa Eficiência + Alta Turbulência. | Ruído dominante, sem direção clara (Lateralidade). |
 
 ---
 
-## 3. Sinais e Avisos Antecipatórios
+## 3. Guia Operacional (Trading)
 
-O MPRM busca avisar sobre mudanças **antes** que elas ocorram:
+O MPRM V2.1 inclui uma camada operacional explícita para facilitar a tomada de decisão:
 
-*   **Triângulo Verde (TREND):** Início de um regime de tendência validado.
-*   **Triângulo Laranja (EXH):** Entrada em zona de exaustão física.
-*   **X Roxo (CHAOS):** Início de regime de caos/turbulência.
-*   **Aviso de Desaceleração (!):** Exibido quando a Aceleração se opõe à Velocidade (ex: preço subindo mas perdendo força).
-*   **Risco de Reversão (‼):** Sinal de alerta máximo (Exaustão combinada com Desaceleração).
-*   **Potencial de Rompimento (⊙):** Detectado durante a Compressão quando a eficiência e a energia começam a subir.
+### 3.1 Entradas (Entry)
+*   **Sinal BUY (Triângulo Verde):** Ocorre quando o sistema transita para o regime **BULL TREND** vindo de estados de acúmulo (Compression) ou equilíbrio (Chaos).
+*   **Sinal SELL (Triângulo Vermelho):** Ocorre quando o sistema transita para o regime **BEAR TREND**.
+
+### 3.2 Saídas (Exit)
+*   **Sinal EXIT (X Branco):** Indica o fechamento da posição. Ocorre em três situações:
+    1.  O sistema detecta **Exaustão** física (Orange).
+    2.  Surge um **Risco de Reversão** (‼) severo.
+    3.  O regime de tendência se inverte (ex: de BULL para BEAR).
+
+### 3.3 Avisos e Potenciais
+*   **Desaceleração (!):** Alerta que o preço continua subindo/descendo, mas a aceleração física já é contrária ao movimento.
+*   **Divergência (D):** O preço atingiu novas máximas/mínimas, mas a Energia ($\Phi$) ou Eficiência ($\eta$) caiu. Sinal clássico de topo/fundo fraco.
+*   **Risco de Reversão (‼):** Alerta crítico. Combinação de exaustão, desaceleração e divergência.
+*   **Potencial de Rompimento (⊙):** Detectado durante a Compressão quando a eficiência e a energia começam a subir. Antecipa o início de uma tendência.
 
 ---
 
-## 4. Ajuste de Parâmetros
+## 4. Ajuste de Sensibilidade
 
-*   **Stability Threshold:** Controla quão "exigente" o sistema é para mudar de regime. Aumente para evitar sinais falsos em mercados laterais.
-*   **Trend Hysteresis:** Cria uma "memória" no estado de tendência. Exige que um sinal contrário seja muito forte para abandonar a tendência verde. Útil para ativos que tendem a ter correções rápidas dentro de uma alta.
-*   **Coherence Lookback:** Período usado para medir a organização do preço. Use valores menores (10-15) para scalping e maiores (20-30) para swing trade.
+*   **Risk Warning Sensitivity:** Ajuste para tornar os sinais (‼) mais ou menos frequentes. Ativos voláteis como Cripto exigem valores maiores (ex: 2.0).
+*   **Divergence Sensitivity:** Controla quão sensível o sinal (D) é à queda de energia.
+*   **Trend Hysteresis:** Evita que o sistema saia do modo TREND por causa de pequenos ruídos. Mantém a posição "viva" durante correções saudáveis.
 
 ---
 
-## 5. Conclusão
+## 5. Matriz de Markov
 
-O MPRM não prevê o preço futuro de forma determinística, mas infere o **estado físico** do sistema. O objetivo é operar a favor da coerência (Trend) e evitar o ruído (Chaos), antecipando-se às quebras de simetria (Exh/Comp).
+O painel superior direito exibe a probabilidade estatística de transição.
+*   **Next Likely #1:** Indica para qual regime o mercado costuma ir a partir do estado atual, baseado em todo o histórico do gráfico.
+*   **Stay Probability:** Indica a persistência do regime atual.
