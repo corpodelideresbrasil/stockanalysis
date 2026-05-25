@@ -65,8 +65,9 @@ z_trend = get_z(phi * efficiency * f_confirm, lookback_norm)
 
 z_comp = get_z(ep * (1 - efficiency), lookback_norm)
 
+// Exhaustion: High instability (jerk/accel) OR extreme divergence
 exh_raw = (math.abs(j) / math.max(math.abs(a), 1e-10)) * coherence
-z_exh = get_z(exh_raw, lookback_norm)
+z_exh_base = get_z(exh_raw, lookback_norm)
 
 chaos_raw = (1 - coherence) * (1 - efficiency) * (ta.stdev(v, lookback_std))
 z_chaos = get_z(chaos_raw, lookback_norm)
@@ -74,16 +75,33 @@ z_chaos = get_z(chaos_raw, lookback_norm)
 // ==========================================
 // 6. Decision Logic
 // ==========================================
-float p_trend = 0.0, float p_comp = 0.0, float p_exh = 0.0, float p_chaos = 0.0
+// Pre-calculate risk to inject into scores
+phi_ma = ta.sma(phi, 5)
+eff_ma = ta.sma(efficiency, 5)
+price_high = ta.highest(close, lookback_c)
+price_low  = ta.lowest(close, lookback_c)
+bool divergence_top = (close >= price_high) and (phi_ma < ta.highest(phi_ma, lookback_c)[1] or eff_ma < ta.highest(eff_ma, lookback_c)[1])
+bool divergence_bot = (close <= price_low) and (phi_ma < ta.highest(phi_ma, lookback_c)[1] or eff_ma < ta.highest(eff_ma, lookback_c)[1])
+bool phys_exh = (close >= price_high and v > 0 and a < 0) or (close <= price_low and v < 0 and a > 0)
+
+// Inject risk into Exhaustion Z-score
+z_exh = z_exh_base + (divergence_top or divergence_bot ? 1.0 : 0.0) + (phys_exh ? 0.5 : 0.0)
+
 float score_trend = 0.0, float score_comp = 0.0, float score_exh = 0.0, float score_chaos = 0.0
 
 if use_softmax
-    exp_sum = math.exp(z_trend) + math.exp(z_comp) + math.exp(z_exh) + math.exp(z_chaos)
-    p_trend := math.exp(z_trend) / exp_sum
-    p_comp  := math.exp(z_comp) / exp_sum
-    p_exh   := math.exp(z_exh) / exp_sum
-    p_chaos := math.exp(z_chaos) / exp_sum
-    score_trend := p_trend, score_comp := p_comp, score_exh := p_exh, score_chaos := p_chaos
+    // Softmax trick: subtract max to avoid overflow
+    max_z = math.max(z_trend, z_comp, z_exh, z_chaos)
+    e_trend = math.exp(z_trend - max_z)
+    e_comp  = math.exp(z_comp - max_z)
+    e_exh   = math.exp(z_exh - max_z)
+    e_chaos = math.exp(z_chaos - max_z)
+    exp_sum = e_trend + e_comp + e_exh + e_chaos
+
+    score_trend := e_trend / exp_sum
+    score_comp  := e_comp / exp_sum
+    score_exh   := e_exh / exp_sum
+    score_chaos := e_chaos / exp_sum
 else
     score_trend := sigmoid(z_trend), score_comp := sigmoid(z_comp), score_exh := sigmoid(z_exh), score_chaos := sigmoid(z_chaos)
 
@@ -101,7 +119,9 @@ else
 var int regime = 3
 // Hysteresis logic: if we are in trend (0), we need the max_score of the NEW regime
 // to be higher than the current trend score plus hysteresis to exit.
-exit_trend_gate = (regime == 0 and raw_regime != 0) ? (max_score > score_trend + hysteresis) : true
+// EXCEPT if the new regime is EXHAUSTION (2) and risk is high.
+is_high_risk_exh = raw_regime == 2 and (z_exh > 1.5 or divergence_top or divergence_bot)
+exit_trend_gate = (regime == 0 and raw_regime != 0 and not is_high_risk_exh) ? (max_score > score_trend + hysteresis) : true
 
 if max_score > stability_thr and exit_trend_gate
     regime := raw_regime
@@ -109,12 +129,8 @@ if max_score > stability_thr and exit_trend_gate
 // ==========================================
 // 7. Anticipatory Warnings
 // ==========================================
-// Energy-Price Divergence: Price making new highs but Phi or Efficiency dropping
-bool divergence_top = ta.highest(close, lookback_c) == close and (phi < ta.highest(phi, lookback_c) or efficiency < ta.highest(efficiency, lookback_c))
-bool divergence_bot = ta.lowest(close, lookback_c) == close and (phi < ta.highest(phi, lookback_c) or efficiency < ta.highest(efficiency, lookback_c))
-
-bool warn_decel = regime == 0 and ((v > 0 and a < 0) or (v < 0 and a > 0))
-bool risk_reversal = (regime == 0 or regime == 2) and (z_exh > 1.5 or (warn_decel and z_exh > 0) or divergence_top or divergence_bot)
+bool warn_decel = (regime == 0 or regime == 2) and ((v > 0 and a < 0) or (v < 0 and a > 0))
+bool risk_reversal = (regime == 0 or regime == 2) and (z_exh > 1.2 or (warn_decel and z_exh > 0) or divergence_top or divergence_bot or phys_exh)
 bool breakout_potential = (regime == 1 or regime == 3) and efficiency > 0.6 and phi > ta.sma(phi, lookback_norm)
 
 // ==========================================
@@ -135,8 +151,9 @@ barcolor(regime == 0 ? color.green : regime == 1 ? color.blue : regime == 2 ? co
 
 // Markov Transitions Tracking
 var float[] transitions = array.new_float(16, 0.0) // 4x4 matrix
-if bar_index > 0 and regime != regime[1]
+if bar_index > 0
     // index = last_regime * 4 + current_regime
+    // We track EVERY transition, including staying in the same regime
     idx = regime[1] * 4 + regime
     array.set(transitions, idx, array.get(transitions, idx) + 1)
 
@@ -148,16 +165,16 @@ if barstate.islast
 
     label_type = use_softmax ? "P(" : "S("
     table.cell(info_table, 0, 1, label_type + "Trend)", text_color = color.white)
-    table.cell(info_table, 1, 1, str.tostring(score_trend, use_softmax ? "##.#%" : "#.##"), text_color = score_trend > stability_thr ? color.green : color.white)
+    table.cell(info_table, 1, 1, str.tostring(score_trend * 100, "##.#") + "%", text_color = score_trend > stability_thr ? color.green : color.white)
 
     table.cell(info_table, 0, 2, label_type + "Comp)", text_color = color.white)
-    table.cell(info_table, 1, 2, str.tostring(score_comp, use_softmax ? "##.#%" : "#.##"), text_color = score_comp > stability_thr ? color.blue : color.white)
+    table.cell(info_table, 1, 2, str.tostring(score_comp * 100, "##.#") + "%", text_color = score_comp > stability_thr ? color.blue : color.white)
 
     table.cell(info_table, 0, 3, label_type + "Exh)", text_color = color.white)
-    table.cell(info_table, 1, 3, str.tostring(score_exh, use_softmax ? "##.#%" : "#.##"), text_color = score_exh > stability_thr ? color.orange : color.white)
+    table.cell(info_table, 1, 3, str.tostring(score_exh * 100, "##.#") + "%", text_color = score_exh > stability_thr ? color.orange : color.white)
 
     table.cell(info_table, 0, 4, label_type + "Chaos)", text_color = color.white)
-    table.cell(info_table, 1, 4, str.tostring(score_chaos, use_softmax ? "##.#%" : "#.##"), text_color = score_chaos > stability_thr ? color.purple : color.white)
+    table.cell(info_table, 1, 4, str.tostring(score_chaos * 100, "##.#") + "%", text_color = score_chaos > stability_thr ? color.purple : color.white)
 
     table.cell(info_table, 0, 5, "Efficiency (η)", text_color = color.white)
     table.cell(info_table, 1, 5, str.tostring(efficiency, "#.##"), text_color = color.white)
