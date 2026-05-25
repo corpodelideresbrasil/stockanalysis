@@ -1,4 +1,4 @@
-# Manual do Usuário: Market Physics Regime Model (MPRM) V3.3
+# Manual do Usuário: Market Physics Regime Model (MPRM) V3.4
 
 O MPRM é um sistema físico-estocástico projetado para identificar regimes de mercado através de analogias com a mecânica clássica e termodinâmica. Em vez de utilizar indicadores técnicos tradicionais, o MPRM modela o preço como um corpo em movimento sujeito a forças de inércia, aceleração e coerência estrutural.
 
@@ -52,12 +52,15 @@ O MPRM V3.3 inclui uma camada operacional explícita para facilitar a tomada de 
     1.  O sistema detecta **Exaustão** física (Orange) **E** a energia estrutural ($\Phi$) está em queda.
     2.  Surge um **Risco de Reversão** (‼) severo (combinação de exaustão, desaceleração e divergência).
     3.  O regime de tendência se inverte (ex: de BULL para BEAR) **E** a direção estrutural ($\rho$) confirma a inversão.
+    4.  **Energy Collapse:** Queda significativa da energia estrutural em relação à média histórica, sem proteção do macro filtro.
+
+**Novidade V3.4 (Strong Trend Override):**
+*   **Sobrescrição de Tendência Forte (Strong Trend Override):** O sistema agora ignora transições para regimes de Exaustão ou Compressão se o "Score de Dominância" da tendência original permanecer alto. Isso permite manter posições durante "descansos" laterais ou picos de volatilidade que não alteram a estrutura de longo prazo.
+*   **Bloqueio de Saída por Inércia:** Refinamento da lógica de V3.3, garantindo que o "Inertia Buffer" atue como uma barreira física real: a saída só é permitida se a força do movimento cair abaixo da energia acumulada no sistema.
 
 **Novidade V3.3 (Inertia Persistence & Physical Gating):**
-*   **Filtro de Inércia (Inertia Buffer):** O sinal de saída antecipada (PEAK) agora exige que a Energia Ativa ($\Phi$) caia abaixo da Inércia Acumulada ($I$). Isso impede saídas prematuras em tendências fortes que estão apenas "respirando".
-*   **Gatilho de Transição Física (Physical Gating):** Impede que o sistema saia do regime de tendência por ruído estatístico se não houver um "Impulso Contrário" significativo (Força = Massa x Velocidade) superando a inércia atual.
-*   **Métrica de Eficiência Energética:** O dashboard agora exibe a razão Energia/Inércia. Valores > 1 indicam injeção ativa de energia; < 1 indicam movimento sustentado apenas por inércia.
-*   **Visualização de Breach:** Pequenos círculos cinzas na base do gráfico indicam quando a energia caiu abaixo da inércia (potencial enfraquecimento estrutural).
+*   **Filtro de Inércia (Inertia Buffer):** O sinal de saída antecipada (PEAK) agora exige que a Energia Ativa ($\Phi$) caia abaixo da Inércia Acumulada ($I$).
+*   **Gatilho de Transição Física (Physical Gating):** Impede que o sistema saia do regime de tendência por ruído estatístico se não houver um "Impulso Contrário" significativo.
 
 ### 3.3 Avisos e Potenciais
 *   **Desaceleração (!):** Alerta que o preço continua subindo/descendo, mas a aceleração física já é contrária ao movimento.
