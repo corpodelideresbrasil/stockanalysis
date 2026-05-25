@@ -2,12 +2,13 @@
 // © Jules
 
 //@version=5
-indicator("Market Physics Regime Model V2.9 (MPRM System)", overlay=true, max_labels_count=500)
+indicator("Market Physics Regime Model V3.0 (MPRM System)", overlay=true, max_labels_count=500)
 
 // ==========================================
 // 1. Inputs
 // ==========================================
 lookback_c      = input.int(20, "Coherence Lookback", minval=2, group="Core Physics")
+lookback_macro  = input.int(200, "Macro Lookback", minval=50, group="Core Physics")
 lookback_std    = input.int(20, "Volatility Lookback", minval=2, group="Core Physics")
 lookback_norm   = input.int(100, "Normalization Lookback", minval=10, group="Core Physics")
 tau             = input.int(10, "Inertia EMA Period (τ)", minval=1, group="Core Physics")
@@ -66,6 +67,7 @@ get_name(r) =>
 // 4. Regime Fields (Bifurcated Trend)
 // ==========================================
 rho = ta.correlation(close, bar_index, lookback_c)
+macro_rho = ta.correlation(close, bar_index, lookback_macro)
 
 // f_confirm: Physical synergy between velocity and acceleration
 // NEW V2.8: Acceleration boosts trend if coherence is high (Power Move)
@@ -74,17 +76,23 @@ f_confirm = (v > 0 and a > 0) or (v < 0 and a < 0) ? 1.1 * f_accel_boost : (math
 trend_base = phi * math.sqrt(efficiency) * f_confirm
 
 // Directional logic based on rho (structural correlation) instead of single-bar v
-// NEW V2.9: Increased weight of inertia and rho for trend persistence
-z_bull = get_z(rho > 0.15 ? (trend_base + inertia * 0.5) : -phi, lookback_norm)
-z_bear = get_z(rho < -0.15 ? (trend_base + inertia * 0.5) : -phi, lookback_norm)
+// NEW V3.0: Added Macro Regime Bias (macro_rho) to anchor trend direction
+z_bull = get_z(rho > 0.15 ? (trend_base + inertia * 0.5) : -phi, lookback_norm) + (macro_rho > 0.3 ? 0.5 : 0)
+z_bear = get_z(rho < -0.15 ? (trend_base + inertia * 0.5) : -phi, lookback_norm) + (macro_rho < -0.3 ? 0.5 : 0)
 
 // NEW V2.9: Compression requires both low efficiency and declining structural energy
 phi_dropping_local = phi < ta.ema(phi, 5)
 z_comp = get_z(ep * (1 - efficiency) * (1 - math.abs(rho)) * (phi_dropping_local ? 1.2 : 0.5), lookback_norm)
 
 // Exhaustion: Defined as high acceleration/jerk coupled with low/declining structure
-// NEW V2.8: High acceleration with high coherence is now a Trend reinforcement, not exhaustion
-exh_raw = (math.abs(a) + math.abs(j)) * (1.0 - math.pow(coherence, 2))
+// NEW V3.0: Exhaustion Damping - Penalize jerk if price is not near local extremes
+price_high = ta.highest(close, lookback_c)
+price_low  = ta.lowest(close, lookback_c)
+dist_to_high = (price_high - close) / math.max(ta.stdev(close, lookback_c), 1e-10)
+dist_to_low  = (close - price_low) / math.max(ta.stdev(close, lookback_c), 1e-10)
+proximity_damping = math.exp(-math.min(dist_to_high, dist_to_low))
+
+exh_raw = (math.abs(a) + math.abs(j)) * (1.0 - math.pow(coherence, 2)) * proximity_damping
 z_exh_base = get_z(exh_raw, lookback_norm)
 
 chaos_raw = (1 - coherence) * (1 - efficiency) * vol_v * 1.5
@@ -95,8 +103,6 @@ z_chaos = get_z(chaos_raw, lookback_norm)
 // ==========================================
 phi_ma = ta.sma(phi, 5)
 eff_ma = ta.sma(efficiency, 5)
-price_high = ta.highest(close, lookback_c)
-price_low  = ta.lowest(close, lookback_c)
 
 bool divergence_top = (close >= price_high) and (phi_ma < ta.highest(phi_ma, lookback_c)[1] * (1 - div_sens) or eff_ma < ta.highest(eff_ma, lookback_c)[1] * (1 - div_sens))
 bool divergence_bot = (close <= price_low) and (phi_ma < ta.highest(phi_ma, lookback_c)[1] * (1 - div_sens) or eff_ma < ta.highest(eff_ma, lookback_c)[1] * (1 - div_sens))
@@ -142,11 +148,12 @@ sum_t_curr := math.max(sum_t_curr, 1)
 float stay_prob_curr = array.get(transitions, regime * 5 + regime) / sum_t_curr
 
 // Hysteresis: Require a higher threshold to break a trend state
-// NEW V2.9: Hardened hysteresis for Trend regimes to bridge volatility gaps
+// NEW V3.0: Dynamic Hysteresis based on Macro Coherence
 is_trend = regime == 0 or regime == 1
 current_trend_score = regime == 0 ? s_bull : s_bear
+macro_bias_boost = (regime == 0 and macro_rho > 0.5) or (regime == 1 and macro_rho < -0.5) ? 0.05 : 0.0
 stay_persistence = stay_prob_curr > markov_stay_thr ? 0.12 : 0.04
-exit_trend_gate = is_trend ? (raw_regime == regime or max_s > current_trend_score + hysteresis + stay_persistence) : true
+exit_trend_gate = is_trend ? (raw_regime == regime or max_s > current_trend_score + hysteresis + stay_persistence + macro_bias_boost) : true
 
 if max_s > stability_thr and exit_trend_gate
     regime := raw_regime
@@ -251,7 +258,7 @@ barcolor(not use_phys_candles ? (regime == 0 ? color.green : regime == 1 ? color
 // Dashboard
 var table info_table = table.new(position.top_right, 2, 13, bgcolor = color.new(color.black, table_transp), border_width = 1, border_color = color.gray)
 if barstate.islast
-    table.cell(info_table, 0, 0, "Regime", text_color = color.white)
+    table.cell(info_table, 0, 0, "Regime (V3.0)", text_color = color.white)
     table.cell(info_table, 1, 0, get_name(regime), text_color = color.white, bgcolor = regime_color)
 
     // NEW V2.6: Position Info

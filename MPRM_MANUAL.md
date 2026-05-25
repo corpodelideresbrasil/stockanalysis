@@ -1,4 +1,4 @@
-# Manual do Usuário: Market Physics Regime Model (MPRM) V2.9
+# Manual do Usuário: Market Physics Regime Model (MPRM) V3.0
 
 O MPRM é um sistema físico-estocástico projetado para identificar regimes de mercado através de analogias com a mecânica clássica e termodinâmica. Em vez de utilizar indicadores técnicos tradicionais, o MPRM modela o preço como um corpo em movimento sujeito a forças de inércia, aceleração e coerência estrutural.
 
@@ -53,11 +53,11 @@ O MPRM V2.8 inclui uma camada operacional explícita para facilitar a tomada de 
     2.  Surge um **Risco de Reversão** (‼) severo (combinação de exaustão, desaceleração e divergência).
     3.  O regime de tendência se inverte (ex: de BULL para BEAR) **E** a direção estrutural ($\rho$) confirma a inversão.
 
-**Novidade V2.9 (Persistence & Gating Refinements):**
-*   **Refino de Inércia:** Aumentada a influência da inércia e correlação ($\rho$) na manutenção dos regimes TREND, evitando inversões precipitadas em pullbacks voláteis.
-*   **Gatilho de Compressão:** Agora exige queda real na energia estrutural local, evitando sinais falsos de COMPRESSION durante consolidações de alta energia.
-*   **Histerese Endurecida:** Maior persistência em tendências estáveis baseada na memória estatística (Markov).
-*   **Supressão PEAK:** Refinada a proteção contra saídas precoces por pico de energia quando a dominância da tendência ainda é robusta.
+**Novidade V3.0 (Macro Anchoring & Exhaustion Damping):**
+*   **Âncora Macro:** Introduzida correlação de longo prazo (200 períodos) para estabilizar o viés de tendência, evitando flips em pullbacks de médio prazo.
+*   **Damping de Exaustão:** O campo de exaustão agora é penalizado se o preço não estiver próximo de máximas/mínimas locais, eliminando sinais de exaustão "no meio do caminho".
+*   **Histerese Dinâmica:** A barreira para saída de uma tendência aumenta se a macro-coerência for favorável ao regime atual.
+*   **Refino de Inércia:** Aumentada a influência da inércia e correlação ($\rho$) na manutenção dos regimes TREND.
 
 ### 3.3 Avisos e Potenciais
 *   **Desaceleração (!):** Alerta que o preço continua subindo/descendo, mas a aceleração física já é contrária ao movimento.
@@ -73,6 +73,12 @@ O MPRM V2.8 inclui uma camada operacional explícita para facilitar a tomada de 
 *   **Divergence Sensitivity:** Controla quão sensível o sinal (D) é à queda de energia.
 *   **Trend Hysteresis:** Evita que o sistema saia do modo TREND por causa de pequenos ruídos. Mantém a posição "viva" durante correções saudáveis.
 *   **Markov Stay Persistence:** Aumenta a persistência em regimes de tendência baseada na memória estatística do ativo.
+
+---
+
+## 4. Parâmetros V3.0
+*   **Macro Lookback (200):** Janela para o filtro de viés estrutural.
+*   **Proximity Damping:** Algoritmo interno que calibra a sensibilidade da exaustão baseada na distância (em desvios padrões) do topo/fundo.
 
 ---
 
