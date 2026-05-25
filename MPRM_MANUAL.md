@@ -1,4 +1,4 @@
-# Manual do Usuário: Market Physics Regime Model (MPRM) V2.1
+# Manual do Usuário: Market Physics Regime Model (MPRM) V2.3
 
 O MPRM é um sistema físico-stocástico projetado para identificar regimes de mercado através de analogias com a mecânica clássica e termodinâmica. Em vez de utilizar indicadores técnicos tradicionais, o MPRM modela o preço como um corpo em movimento sujeito a forças de inércia, aceleração e coerência estrutural.
 
@@ -10,7 +10,8 @@ O modelo baseia-se em quatro pilares fundamentais:
 
 ### 1.1 Cinemática (Movimento)
 *   **Velocidade ($v$):** Variação logarítmica do preço no tempo ($\ln(P_t / P_{t-1})$). Isso torna o modelo invariante à escala de preço do ativo.
-*   **Aceleração ($a$):** Taxa de variação da velocidade. Determina se o movimento está ganhando ou perdendo força.
+*   **Aceleração ($a$):** Taxa de variação da velocidade.
+*   **Correlação Estrutural ($\rho$):** Mede a direção dominante do movimento nos últimos N períodos. É a bússola que mantém o regime TREND mesmo em pequenos pullbacks.
 *   **Jerk ($j$):** Taxa de variação da aceleração. Mede a instabilidade e "vibração" do sistema.
 
 ### 1.2 Dinâmica e Energia
@@ -47,7 +48,7 @@ O MPRM V2.1 inclui uma camada operacional explícita para facilitar a tomada de 
 *   **Sinal EXIT (X Branco):** Indica o fechamento da posição. Ocorre em três situações principais:
     1.  O sistema detecta **Exaustão** física (Orange) **E** a energia estrutural ($\Phi$) está em queda.
     2.  Surge um **Risco de Reversão** (‼) severo (combinação de exaustão, desaceleração e divergência).
-    3.  O regime de tendência se inverte (ex: de BULL para BEAR).
+    3.  O regime de tendência se inverte (ex: de BULL para BEAR) **E** a direção estrutural ($\rho$) confirma a inversão.
 
 ### 3.3 Avisos e Potenciais
 *   **Desaceleração (!):** Alerta que o preço continua subindo/descendo, mas a aceleração física já é contrária ao movimento.
