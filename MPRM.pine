@@ -2,7 +2,7 @@
 // © Jules
 
 //@version=5
-indicator("Market Physics Regime Model V3.5 (MPRM System)", overlay=true, max_labels_count=500)
+indicator("Market Physics Regime Model V3.5.1 (MPRM System)", overlay=true, max_labels_count=500)
 
 // ==========================================
 // 1. Inputs & Asset Profiles
@@ -13,7 +13,7 @@ lookback_std    = input.int(20, "Volatility Lookback", minval=2, group="Core Phy
 lookback_norm   = input.int(100, "Normalization Lookback", minval=10, group="Core Physics")
 tau             = input.int(10, "Inertia EMA Period (τ)", minval=1, group="Core Physics")
 
-asset_profile   = input.string("Equities/Standard", "Asset Physics Profile", options=["Crypto/Hyper-Vol", "Equities/Standard", "Indices/Heavy"], group="Decision Logic", tooltip="Adjusts internal physics constants for asset density")
+asset_profile   = input.string("Equities/Standard", "Asset Physics Profile", options=["Crypto/Hyper-Vol", "Equities/Standard", "Indices/Heavy"], group="Decision Logic")
 
 stability_thr   = input.float(0.35, "Stability Threshold (0-1)", minval=0.1, maxval=1.0, step=0.05, group="Decision Logic")
 hysteresis_base = input.float(0.08, "Base Trend Hysteresis", minval=0.0, maxval=0.5, step=0.01, group="Decision Logic")
@@ -50,7 +50,6 @@ efficiency = displacement / math.max(path, 1e-10)
 ek = math.pow(v, 2)
 vol_v = ta.stdev(v, lookback_std)
 
-// Adaptive Volatility Benchmark (Market Heat)
 benchmarking_vol = ta.ema(ta.stdev(v, 100), 200)
 market_heat = vol_v / math.max(benchmarking_vol, 1e-10)
 
@@ -98,8 +97,6 @@ dist_to_high = (price_high - close) / math.max(ta.stdev(close, lookback_c), 1e-1
 dist_to_low  = (close - price_low) / math.max(ta.stdev(close, lookback_c), 1e-10)
 proximity_damping = math.exp(-math.min(dist_to_high, dist_to_low))
 
-// Adaptive Exhaustion Logic (V3.5)
-// Instead of simple Z, we dampen exhaustion if market heat is extreme (normal for crypto breakouts)
 exh_raw = (math.abs(a) + math.abs(j)) * (1.0 - math.pow(coherence, 2)) * proximity_damping
 z_exh_base = get_z(exh_raw, norm_len) / (market_heat > 2.0 ? math.sqrt(market_heat) : 1.0)
 
@@ -117,9 +114,14 @@ bool divergence_top = (close >= price_high) and (phi_ma < ta.highest(phi_ma, loo
 bool divergence_bot = (close <= price_low) and (phi_ma < ta.highest(phi_ma, lookback_c)[1] * (1 - div_sens) or eff_ma < ta.highest(eff_ma, lookback_c)[1] * (1 - div_sens))
 bool phys_exh = (close >= price_high and v > 0 and a < 0) or (close <= price_low and v < 0 and a > 0)
 
-z_exh := z_exh_base + (divergence_top or divergence_bot ? 1.0 : 0.0) + (phys_exh ? 0.5 : 0.0)
+z_exh = z_exh_base + (divergence_top or divergence_bot ? 1.0 : 0.0) + (phys_exh ? 0.5 : 0.0)
 
-float s_bull = 0.0, float s_bear = 0.0, float s_comp = 0.0, float s_exh = 0.0, float s_chaos = 0.0
+float s_bull = 0.0
+float s_bear = 0.0
+float s_comp = 0.0
+float s_exh = 0.0
+float s_chaos = 0.0
+
 if use_softmax
     max_z = math.max(z_bull, z_bear, z_comp, z_exh, z_chaos)
     e_bull  = math.exp(z_bull - max_z)
@@ -128,9 +130,17 @@ if use_softmax
     e_exh   = math.exp(z_exh - max_z)
     e_chaos = math.exp(z_chaos - max_z)
     exp_sum = e_bull + e_bear + e_comp + e_exh + e_chaos
-    s_bull := e_bull / exp_sum, s_bear := e_bear / exp_sum, s_comp := e_comp / exp_sum, s_exh := e_exh / exp_sum, s_chaos := e_chaos / exp_sum
+    s_bull := e_bull / exp_sum
+    s_bear := e_bear / exp_sum
+    s_comp := e_comp / exp_sum
+    s_exh := e_exh / exp_sum
+    s_chaos := e_chaos / exp_sum
 else
-    s_bull := sigmoid(z_bull), s_bear := sigmoid(z_bear), s_comp := sigmoid(z_comp), s_exh := sigmoid(z_exh), s_chaos := sigmoid(z_chaos)
+    s_bull := sigmoid(z_bull)
+    s_bear := sigmoid(z_bear)
+    s_comp := sigmoid(z_comp)
+    s_exh := sigmoid(z_exh)
+    s_chaos := sigmoid(z_chaos)
 
 float max_s = math.max(s_bull, s_bear, s_comp, s_exh, s_chaos)
 int raw_regime = max_s == s_bull ? 0 : max_s == s_bear ? 1 : max_s == s_comp ? 2 : max_s == s_exh ? 3 : 4
@@ -231,13 +241,33 @@ plotcandle(use_phys_candles ? open : na, high, low, close, title="MPRM Candles",
 
 var table info_table = table.new(position.top_right, 2, 14, bgcolor = color.new(color.black, table_transp), border_width = 1, border_color = color.gray)
 if barstate.islast
-    table.cell(info_table, 0, 0, "Regime (V3.5)", text_color = color.white)
+    table.cell(info_table, 0, 0, "Regime (V3.5.1)", text_color = color.white)
     table.cell(info_table, 1, 0, get_name(regime) + " [" + asset_profile + "]", text_color = color.white, bgcolor = regime_color)
     pos_text = trade_state == 1 ? "LONG" : trade_state == -1 ? "SHORT" : "FLAT"
     table.cell(info_table, 0, 1, "Position", text_color = color.white)
     table.cell(info_table, 1, 1, pos_text, text_color = color.white, bgcolor = trade_state == 1 ? color.green : trade_state == -1 ? color.red : color.gray)
     table.cell(info_table, 0, 2, "Market Heat (RMS)", text_color = color.white)
     table.cell(info_table, 1, 2, str.tostring(market_heat, "#.##"), text_color = market_heat > 1.5 ? color.orange : color.lime)
+
+    [sum_t_display, stay_prob_display] = get_markov_stats(regime, transitions)
+    float m1 = -1.0, float m2 = -1.0
+    int r1 = -1, int r2 = -1
+    for i = 0 to 4
+        if i == regime
+            continue
+        val = array.get(transitions, regime * 5 + i)
+        if val > m1
+            m2 := m1, r2 := r1
+            m1 := val, r1 := i
+        else if val > m2
+            m2 := val, r2 := i
+
+    table.cell(info_table, 0, 7, "Stay Probability", text_color = color.white, text_size = size.small)
+    table.cell(info_table, 1, 7, str.tostring(stay_prob_display * 100, "##") + "%", text_color = color.aqua, text_size = size.small)
+    table.cell(info_table, 0, 8, "Next Likely #1", text_color = color.white, text_size = size.small)
+    table.cell(info_table, 1, 8, (r1 == -1 ? "N/A" : get_name(r1)) + " (" + str.tostring((m1 / sum_t_display) * 100, "##") + "%)", text_color = color.yellow, text_size = size.small)
+    table.cell(info_table, 0, 9, "Next Likely #2", text_color = color.white, text_size = size.small)
+    table.cell(info_table, 1, 9, (r2 == -1 ? "N/A" : get_name(r2)) + " (" + str.tostring((m2 / sum_t_display) * 100, "##") + "%)", text_color = color.gray, text_size = size.small)
 
 plotshape(buy_signal, title="BUY", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.small, text="BUY")
 plotshape(sell_signal, title="SELL", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.small, text="SELL")
