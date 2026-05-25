@@ -14,12 +14,14 @@ tau             = input.int(10, "Inertia EMA Period (τ)", minval=1, group="Core
 
 stability_thr   = input.float(0.35, "Stability Threshold (0-1)", minval=0.1, maxval=1.0, step=0.05, group="Decision Logic", tooltip="Minimum probability/score to switch regime")
 hysteresis      = input.float(0.08, "Trend Hysteresis", minval=0.0, maxval=0.5, step=0.05, group="Decision Logic", tooltip="Extra score needed to exit Trend regime")
+energy_peak_thr = input.float(0.4, "Energy Peak Drop Thr", minval=0.1, maxval=0.9, step=0.05, group="Decision Logic", tooltip="Exit if energy drops this % from trade peak")
 risk_sens       = input.float(1.5, "Risk Warning Sensitivity", minval=0.5, maxval=3.0, step=0.1, group="Decision Logic", tooltip="Higher = less frequent warnings")
 div_sens        = input.float(0.1, "Divergence Sensitivity", minval=0.0, maxval=0.5, step=0.05, group="Decision Logic", tooltip="Percentage drop in energy to trigger divergence")
 breakout_thr    = input.float(0.6, "Breakout Efficiency Thr", minval=0.1, maxval=1.0, step=0.05, group="Decision Logic")
 markov_stay_thr = input.float(0.6, "Markov Stay Persistence", minval=0.0, maxval=1.0, step=0.05, group="Decision Logic", tooltip="If Stay Prob > this, suppress exit")
 
 table_transp    = input.int(40, "Table Transparency", minval=0, maxval=100, group="Visuals")
+use_phys_candles = input.bool(true, "Use Physics Candles (Body=Regime, Edge=Momentum)", group="Visuals")
 use_softmax     = input.bool(true, "Use Softmax Probabilities", group="Decision Logic")
 
 // ==========================================
@@ -149,6 +151,17 @@ float stay_prob = array.get(transitions, regime * 5 + regime) / sum_t
 bool cond_buy  = (regime == 0 and regime[1] != 0)
 bool cond_sell = (regime == 1 and regime[1] != 1)
 
+// NEW V2.7: Proactive Profit Taking (Energy Peak Tracking)
+var float trade_peak_phi = 0.0
+if trade_state[1] == 0 and (cond_buy or cond_sell)
+    trade_peak_phi := phi
+else if trade_state[1] != 0
+    trade_peak_phi := math.max(trade_peak_phi, phi)
+else
+    trade_peak_phi := 0.0
+
+bool cond_energy_peak_exit = trade_state[1] != 0 and phi < trade_peak_phi * (1 - energy_peak_thr)
+
 // Secondary Conditions
 bool cond_warn_decel = (regime <= 1 or regime == 3) and ((v > 0 and a < 0) or (v < 0 and a > 0))
 // Tightened risk reversal: requires exhaustion z-score AND either deceleration or physical signals
@@ -163,8 +176,11 @@ bool markov_gate = stay_prob < markov_stay_thr
 bool flip_to_bear = regime == 1 and rho < -0.2
 bool flip_to_bull = regime == 0 and rho > 0.2
 
-bool cond_exit_long  = (regime == 3 and phi_dropping and markov_gate) or cond_risk_reversal or flip_to_bear or (regime >= 2 and phi_dropping)
-bool cond_exit_short = (regime == 3 and phi_dropping and markov_gate) or cond_risk_reversal or flip_to_bull or (regime >= 2 and phi_dropping)
+bool force_exh_exit_long  = regime == 3 and (divergence_top or close >= price_high) and phi_dropping
+bool force_exh_exit_short = regime == 3 and (divergence_bot or close <= price_low) and phi_dropping
+
+bool cond_exit_long  = (regime == 3 and phi_dropping and markov_gate) or force_exh_exit_long or cond_risk_reversal or flip_to_bear or (regime >= 2 and phi_dropping) or cond_energy_peak_exit
+bool cond_exit_short = (regime == 3 and phi_dropping and markov_gate) or force_exh_exit_short or cond_risk_reversal or flip_to_bull or (regime >= 2 and phi_dropping) or cond_energy_peak_exit
 
 bool buy_signal  = false
 bool sell_signal = false
@@ -210,7 +226,14 @@ color c_chaos = color.new(color.purple, 85)
 
 color regime_color = regime == 0 ? c_bull : regime == 1 ? c_bear : regime == 2 ? c_comp : regime == 3 ? c_exh : c_chaos
 bgcolor(regime_color)
-barcolor(regime == 0 ? color.green : regime == 1 ? color.red : regime == 2 ? color.blue : regime == 3 ? color.orange : color.purple)
+
+// NEW V2.7: Physics-Based Candle Coloring
+color body_color = regime == 0 ? color.new(color.green, 30) : regime == 1 ? color.new(color.red, 30) : regime == 2 ? color.new(color.blue, 30) : regime == 3 ? color.new(color.orange, 30) : color.new(color.purple, 30)
+color edge_color = v > 0 ? color.lime : color.maroon
+plotcandle(use_phys_candles ? open : na, high, low, close, title="MPRM Candles", color=body_color, wickcolor=edge_color, bordercolor=edge_color)
+
+// Fallback barcolor if physics candles are disabled
+barcolor(not use_phys_candles ? (regime == 0 ? color.green : regime == 1 ? color.red : regime == 2 ? color.blue : regime == 3 ? color.orange : color.purple) : na)
 
 // Dashboard
 var table info_table = table.new(position.top_right, 2, 13, bgcolor = color.new(color.black, table_transp), border_width = 1, border_color = color.gray)
@@ -269,6 +292,7 @@ plotshape(buy_signal, title="BUY", style=shape.triangleup, location=location.bel
 plotshape(sell_signal, title="SELL", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.small, text="SELL")
 plotshape(exit_long, title="EXIT LONG", style=shape.xcross, location=location.abovebar, color=color.white, size=size.tiny, text="EXIT")
 plotshape(exit_short, title="EXIT SHORT", style=shape.xcross, location=location.belowbar, color=color.white, size=size.tiny, text="EXIT")
+plotshape(trade_state[1] != 0 and cond_energy_peak_exit, title="Energy Peak Exit", style=shape.labeldown, location=location.abovebar, color=color.new(color.yellow, 50), size=size.tiny, text="PEAK")
 
 plotchar(warn_decel, title="Deceleration", char="!", location=location.abovebar, color=color.yellow, size=size.tiny)
 plotchar(risk_reversal, title="Reversal Risk", char="‼", location=location.abovebar, color=color.red, size=size.small)
