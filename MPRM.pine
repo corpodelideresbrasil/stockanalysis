@@ -2,7 +2,7 @@
 // © Jules
 
 //@version=5
-indicator("Market Physics Regime Model V3.1 (MPRM System)", overlay=true, max_labels_count=500)
+indicator("Market Physics Regime Model V3.2 (MPRM System)", overlay=true, max_labels_count=500)
 
 // ==========================================
 // 1. Inputs
@@ -183,9 +183,9 @@ else if trade_state[1] != 0
 else
     trade_peak_phi := 0.0
 
-// NEW V2.9: Tightened PEAK suppression to ensure trend dominance is truly weakening
-bool trend_is_dominant = (regime == 0 and s_bull > s_exh + 0.15) or (regime == 1 and s_bear > s_exh + 0.15)
-bool cond_energy_peak_exit = trade_state[1] != 0 and phi < trade_peak_phi * (1 - energy_peak_thr) and not trend_is_dominant
+// NEW V3.2: Increased PEAK resilience; requires exhaustion regime OR loss of structural coherence
+bool trend_is_dominant = (regime == 0 and s_bull > s_exh + 0.20) or (regime == 1 and s_bear > s_exh + 0.20)
+bool cond_energy_peak_exit = trade_state[1] != 0 and phi < trade_peak_phi * (1 - energy_peak_thr) and not trend_is_dominant and (regime >= 2 or math.abs(rho) < 0.3)
 
 // Secondary Conditions
 bool cond_warn_decel = (regime <= 1 or regime == 3) and ((v > 0 and a < 0) or (v < 0 and a > 0))
@@ -195,17 +195,27 @@ bool cond_risk_reversal = (regime <= 1) and (z_exh > risk_sens and (cond_warn_de
 bool cond_breakout_setup = (regime == 2 or regime == 4) and efficiency > breakout_thr and phi > ta.sma(phi, lookback_norm)
 
 // Momentum Filtered Exits: Requires regime change + energy (phi) confirmation
-// NEW V2.6: Relax Markov gate for regime flips and risk reversals; add exit on Chaos/Comp if energy is low
+// NEW V3.2: Toughened exits to require structural breakdown (rho flip) or macro alignment loss
 bool phi_dropping = phi < ta.ema(phi, lookback_c)
 bool markov_gate = stay_prob < markov_stay_thr
-bool flip_to_bear = regime == 1 and rho < -0.2
-bool flip_to_bull = regime == 0 and rho > 0.2
 
-bool force_exh_exit_long  = regime == 3 and (divergence_top or close >= price_high) and phi_dropping
-bool force_exh_exit_short = regime == 3 and (divergence_bot or close <= price_low) and phi_dropping
+// Only flip position if correlation crosses zero strongly (structural change)
+bool flip_to_bear = trade_state[1] == 1 and rho < -0.3
+bool flip_to_bull = trade_state[1] == -1 and rho > 0.3
 
-bool cond_exit_long  = (regime == 3 and phi_dropping and markov_gate) or force_exh_exit_long or cond_risk_reversal or flip_to_bear or (regime >= 2 and phi_dropping) or cond_energy_peak_exit
-bool cond_exit_short = (regime == 3 and phi_dropping and markov_gate) or force_exh_exit_short or cond_risk_reversal or flip_to_bull or (regime >= 2 and phi_dropping) or cond_energy_peak_exit
+// Exit Guard: Protects positions if macro trend is still supportive
+bool macro_guard_long  = macro_rho > 0.1 and close > ta.ema(close, lookback_c)
+bool macro_guard_short = macro_rho < -0.1 and close < ta.ema(close, lookback_c)
+
+// NEW V3.2: Replaced aggressive (regime >= 2) exit with (structural energy collapse + no macro guard)
+bool structural_break_long  = (regime >= 2 and phi < ta.sma(phi, lookback_norm) * 0.8) and not macro_guard_long
+bool structural_break_short = (regime >= 2 and phi < ta.sma(phi, lookback_norm) * 0.8) and not macro_guard_short
+
+bool force_exh_exit_long  = regime == 3 and (divergence_top or close >= price_high) and phi_dropping and not macro_guard_long
+bool force_exh_exit_short = regime == 3 and (divergence_bot or close <= price_low) and phi_dropping and not macro_guard_short
+
+bool cond_exit_long  = (regime == 3 and phi_dropping and markov_gate and not macro_guard_long) or force_exh_exit_long or cond_risk_reversal or flip_to_bear or structural_break_long or cond_energy_peak_exit
+bool cond_exit_short = (regime == 3 and phi_dropping and markov_gate and not macro_guard_short) or force_exh_exit_short or cond_risk_reversal or flip_to_bull or structural_break_short or cond_energy_peak_exit
 
 bool buy_signal  = false
 bool sell_signal = false
@@ -261,7 +271,7 @@ barcolor(not use_phys_candles ? (regime == 0 ? color.green : regime == 1 ? color
 // Dashboard
 var table info_table = table.new(position.top_right, 2, 13, bgcolor = color.new(color.black, table_transp), border_width = 1, border_color = color.gray)
 if barstate.islast
-    table.cell(info_table, 0, 0, "Regime (V3.1)", text_color = color.white)
+    table.cell(info_table, 0, 0, "Regime (V3.2)", text_color = color.white)
     table.cell(info_table, 1, 0, get_name(regime), text_color = color.white, bgcolor = regime_color)
 
     // NEW V2.6: Position Info
