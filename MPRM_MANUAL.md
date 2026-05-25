@@ -1,4 +1,4 @@
-# Manual do Usuário: Market Physics Regime Model (MPRM) V3.4.2
+# Manual do Usuário: Market Physics Regime Model (MPRM) V3.5
 
 O MPRM é um sistema físico-estocástico projetado para identificar regimes de mercado através de analogias com a mecânica clássica e termodinâmica. Em vez de utilizar indicadores técnicos tradicionais, o MPRM modela o preço como um corpo em movimento sujeito a forças de inércia, aceleração e coerência estrutural.
 
@@ -54,10 +54,13 @@ O MPRM V3.3 inclui uma camada operacional explícita para facilitar a tomada de 
     3.  O regime de tendência se inverte (ex: de BULL para BEAR) **E** a direção estrutural ($\rho$) confirma a inversão.
     4.  **Energy Collapse:** Queda significativa da energia estrutural em relação à média histórica, sem proteção do macro filtro.
 
-**Novidade V3.4.2 (Strong Trend Override & Vertical Gating):**
-*   **Sobrescrição de Tendência Forte (Strong Trend Override):** O sistema agora ignora transições para regimes de Exaustão ou Compressão se o "Score de Dominância" da tendência original permanecer alto.
-*   **Proteção de Movimento Vertical (Vertical Gating):** Implementado o cálculo de "Fast Momentum". Se o preço estiver subindo/descendo verticalmente com suporte macro, o sistema torna-se imune a sinais de exaustão por volatilidade, tratando o calor do movimento como potência útil, não como falha.
-*   **Bloqueio de Saída por Inércia:** A saída só é permitida se a força do movimento cair abaixo da energia acumulada no sistema.
+**Novidade V3.5 (Asset Physics Profiles & Market Heat):**
+*   **Perfis de Viscosidade do Ativo:** Agora você pode selecionar a classe do ativo no menu de inputs:
+    *   *Crypto/Hyper-Vol:* Alta tolerância ao "calor" (volatilidade), ideal para movimentos parabólicos.
+    *   *Equities/Standard:* Ajuste equilibrado para ações de liquidez média.
+    *   *Indices/Heavy:* Alta persistência e baixa sensibilidade ao ruído, ideal para ativos de massa pesada (VALE3, IBOV, SPX).
+*   **Métrica Market Heat (RMS):** O dashboard agora exibe o "calor" do mercado. Valores acima de 1.5 indicam que o ativo está operando acima da sua temperatura normal de volatilidade. Em cripto, o sistema usa isso para dampen (amortecer) os alertas de exaustão falsos.
+*   **Vertical Gating:** Proteção aprimorada para manter posições enquanto o momentum vertical for suportado pela estrutura macro.
 
 **Novidade V3.3 (Inertia Persistence & Physical Gating):**
 *   **Filtro de Inércia (Inertia Buffer):** O sinal de saída antecipada (PEAK) agora exige que a Energia Ativa ($\Phi$) caia abaixo da Inércia Acumulada ($I$).
