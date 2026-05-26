@@ -24,4 +24,4 @@ TIMEFRAME_TACTICAL = '4h'
 
 # Parâmetros Supertrend
 SUPERTREND_PERIOD = 15
-SUPERTREND_MULTIPLIER = 1.4
+SUPERTREND_MULTIPLIER = 3.5  # Aumentado para 3.5 para perseguir tendências de semanas e evitar ruído
