@@ -2,7 +2,7 @@
 // © Jules
 
 //@version=6
-indicator("Market Physics Regime Model V3.7 (MPRM Engine)", overlay=true, max_labels_count=500)
+indicator("Market Physics Regime Model V3.8 (MPRM Engine)", overlay=true, max_labels_count=500)
 
 // ==========================================
 // 1. Enums & Inputs
@@ -174,30 +174,50 @@ color body_color = regime == 0 ? color.new(color.green, 30) : regime == 1 ? colo
 color edge_color = v > 0 ? color.lime : color.maroon
 plotcandle(use_phys_candles ? open : na, high, low, close, title="MPRM Candles", color=body_color, wickcolor=edge_color, bordercolor=edge_color)
 
-var table info = table.new(position.top_right, 2, 12, bgcolor=color.new(color.black, table_transp), border_width=1, border_color=color.gray)
+var table info = table.new(position.top_right, 2, 14, bgcolor=color.new(color.black, table_transp), border_width=1, border_color=color.gray)
 if barstate.islast
-    table.cell(info, 0, 0, "Regime V3.7 (V6)", text_color=color.white)
+    table.cell(info, 0, 0, "Regime V3.8 (V6)", text_color=color.white)
     table.cell(info, 1, 0, get_n(regime) + " [" + profile_input + "]", text_color=color.white, bgcolor=regime_color)
 
-    // NEW V3.7: Position Status
     pos_txt = trade_state == 1 ? "LONG" : trade_state == -1 ? "SHORT" : "FLAT"
     pos_col = trade_state == 1 ? color.lime : trade_state == -1 ? color.red : color.gray
     table.cell(info, 0, 1, "Status", text_color=color.white)
     table.cell(info, 1, 1, pos_txt, text_color=color.white, bgcolor=pos_col)
 
-    table.cell(info, 0, 2, "Stay Prob.", text_color=color.white)
-    table.cell(info, 1, 2, str.tostring(p_stay * 100, "##") + "%", text_color=color.aqua)
-    table.cell(info, 0, 3, "Hurst (Quality)", text_color=color.white)
-    table.cell(info, 1, 3, str.tostring(hurst, "#.##"), text_color=hurst > 0.5 ? color.lime : color.white)
+    // Hurst Classification
+    h_txt = hurst > 0.55 ? "PERSISTENCE" : hurst < 0.45 ? "REVERSION" : "RANDOM"
+    h_col = hurst > 0.55 ? color.lime : hurst < 0.45 ? color.fuchsia : color.white
+    table.cell(info, 0, 2, "Hurst Type", text_color=color.white)
+    table.cell(info, 1, 2, h_txt + " (" + str.tostring(hurst, "#.##") + ")", text_color=h_col)
 
-// Visual Links: Entries and Exits linked by color
+    // Markov Prediction Logic
+    float m_val = -1.0
+    int m_idx = -1
+    for i = 0 to 4
+        if i == regime // We look for the next likely change
+            continue
+        val = array.get(transitions, regime * 5 + i)
+        if val > m_val
+            m_val := val
+            m_idx := i
+
+    // Calculate probability for the next likely state
+    float sum_next = 0.0
+    for i = 0 to 4
+        sum_next += array.get(transitions, regime * 5 + i)
+    sum_next := math.max(sum_next, 1.0)
+    p_next = m_idx != -1 ? (array.get(transitions, regime * 5 + m_idx) / sum_next) : 0.0
+
+    table.cell(info, 0, 3, "Next Likely", text_color=color.white)
+    table.cell(info, 1, 3, (m_idx == -1 ? "N/A" : get_n(m_idx)) + " (" + str.tostring(p_next * 100, "##") + "%)", text_color=color.yellow)
+
+    table.cell(info, 0, 4, "Stay Prob.", text_color=color.white)
+    table.cell(info, 1, 4, str.tostring(p_stay * 100, "##") + "%", text_color=color.aqua)
+
 plotshape(buy_sig, "BUY", shape.triangleup, location.belowbar, color.lime, size=size.small, text="BUY")
-plotshape(sell_sig, "SELL", shape.triangledown, location.abovebar, color.red, size=size.small, text="SELL")
-
-// EXIT LONG linked to BUY (Lime color)
-plotshape(exit_l, "EXIT LONG", shape.xcross, location.abovebar, color.lime, size=size.tiny, text="EXIT")
-// EXIT SHORT linked to SELL (Red color)
-plotshape(exit_s, "EXIT SHORT", shape.xcross, location.belowbar, color.red, size=size.tiny, text="EXIT")
+plotshape(sell_sig, "SELL", shape.triangledown, location=location.abovebar, color=color.red, size=size.small, text="SELL")
+plotshape(exit_l, "EXIT LONG", shape.xcross, location.abovebar, color=color.lime, size=size.tiny, text="EXIT")
+plotshape(exit_s, "EXIT SHORT", shape.xcross, location.belowbar, color=color.red, size=size.tiny, text="EXIT")
 
 if bar_index > 0
     idx = nz(regime[1], 4) * 5 + regime
