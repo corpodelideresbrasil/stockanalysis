@@ -2,7 +2,7 @@
 // © Jules
 
 //@version=6
-indicator("Market Physics Regime Model V3.9 (MPRM Engine)", overlay=true, max_labels_count=500)
+indicator("Market Physics Regime Model V4.0 (MPRM Engine)", overlay=true, max_labels_count=500)
 
 // ==========================================
 // 1. Enums & Inputs
@@ -125,10 +125,15 @@ current_trend_score = regime == 0 ? s_bull : s_bear
 macro_boost = (regime == 0 and macro_rho > 0.5) or (regime == 1 and macro_rho < -0.5) ? 0.05 : 0.0
 stay_gate = p_stay > 0.6 ? 0.10 : 0.04
 
-inertia_gate = is_trend and coherence > 0.7 and phi > inertia
-exit_gate = is_trend ? (raw_regime == regime or (max_s > current_trend_score + hysteresis + stay_gate + macro_boost and not inertia_gate)) : true
+// V4.0 Inertia-Hurst Coupling
+hurst_boost = hurst > 0.75 ? 0.12 : hurst > 0.60 ? 0.06 : 0.0
+inertia_gate = is_trend and coherence > 0.7 and (phi > inertia or hurst > 0.6)
+exit_gate = is_trend ? (raw_regime == regime or (max_s > current_trend_score + hysteresis + stay_gate + macro_boost + hurst_boost and not inertia_gate)) : true
 
-if max_s > stability_thr and exit_gate and markov_gate_change
+// Dynamic Stability Threshold scaling
+dyn_stability = stability_thr * (1.0 + (coherence > 0.8 ? 0.2 : 0.0))
+
+if max_s > dyn_stability and exit_gate and markov_gate_change
     regime := raw_regime
 
 // ==========================================
@@ -177,7 +182,7 @@ plotcandle(use_phys_candles ? open : na, high, low, close, title="MPRM Candles",
 
 var table info = table.new(position.top_right, 2, 14, bgcolor=color.new(color.black, table_transp), border_width=1, border_color=color.gray)
 if barstate.islast
-    table.cell(info, 0, 0, "Regime V3.9 (V6)", text_color=color.white)
+    table.cell(info, 0, 0, "Regime V4.0 (V6)", text_color=color.white)
     table.cell(info, 1, 0, get_n(regime) + " [" + profile_input + "]", text_color=color.white, bgcolor=regime_color)
 
     pos_txt = trade_state == 1 ? "LONG" : trade_state == -1 ? "SHORT" : "FLAT"
