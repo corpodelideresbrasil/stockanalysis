@@ -2,7 +2,7 @@
 // © Jules
 
 //@version=6
-indicator("Market Physics Regime Model V3.6 (MPRM Engine)", overlay=true, max_labels_count=500)
+indicator("Market Physics Regime Model V3.6.1 (MPRM Engine)", overlay=true, max_labels_count=500)
 
 // ==========================================
 // 1. Enums & Inputs (Modern PS V6)
@@ -49,6 +49,8 @@ get_hurst(len) =>
     std_p = ta.stdev(close, len)
     h = math.log(math.max(range_p, 1e-10) / math.max(std_p, 1e-10)) / math.log(len)
     math.clamp(h, 0.0, 1.0)
+
+get_n(r) => r == 0 ? "BULL" : r == 1 ? "BEAR" : r == 2 ? "COMP" : r == 3 ? "EXH" : "CHAOS"
 
 hurst = get_hurst(lookback_c)
 
@@ -175,8 +177,7 @@ plotcandle(use_phys_candles ? open : na, high, low, close, title="MPRM 3.6 Candl
 
 var table info = table.new(position.top_right, 2, 12, bgcolor=color.new(color.black, table_transp), border_width=1, border_color=color.gray)
 if barstate.islast
-    get_n(r) => r == 0 ? "BULL" : r == 1 ? "BEAR" : r == 2 ? "COMP" : r == 3 ? "EXH" : "CHAOS"
-    table.cell(info, 0, 0, "Regime V3.6 (V6)", text_color=color.white)
+    table.cell(info, 0, 0, "Regime V3.6.1 (V6)", text_color=color.white)
     table.cell(info, 1, 0, get_n(regime) + " [" + profile_input + "]", text_color=color.white, bgcolor=regime_color)
     table.cell(info, 0, 1, "Hurst (Persistence)", text_color=color.white)
     table.cell(info, 1, 1, str.tostring(hurst, "#.##"), text_color=hurst > 0.55 ? color.lime : hurst < 0.45 ? color.fuchsia : color.white)
