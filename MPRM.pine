@@ -2,7 +2,7 @@
 // © Jules
 
 //@version=6
-indicator("Market Physics Regime Model V3.6.4 (MPRM Engine)", overlay=true, max_labels_count=500)
+indicator("Market Physics Regime Model V3.7 (MPRM Engine)", overlay=true, max_labels_count=500)
 
 // ==========================================
 // 1. Enums & Inputs
@@ -20,7 +20,7 @@ tau             = input.int(10, "Inertia EMA (τ)", minval=1, group="Core Physic
 profile_input   = input.string("EQUITIES", "Asset Physics Profile", options=["CRYPTO", "EQUITIES", "INDICES"], group="Decision Logic")
 asset_profile   = profile_input == "CRYPTO" ? AssetProfile.CRYPTO : profile_input == "INDICES" ? AssetProfile.INDICES : AssetProfile.EQUITIES
 
-stability_thr   = input.float(0.30, "Stability Threshold", minval=0.1, maxval=1.0, step=0.05, group="Decision Logic", tooltip="Lowered to 0.30 for better responsiveness")
+stability_thr   = input.float(0.30, "Stability Threshold", minval=0.1, maxval=1.0, step=0.05, group="Decision Logic")
 risk_sens_base  = input.float(1.5, "Risk Sensitivity", minval=0.5, maxval=3.0, step=0.1, group="Decision Logic")
 hysteresis_base = input.float(0.08, "Trend Hysteresis", minval=0.0, maxval=0.5, step=0.01, group="Decision Logic")
 use_markov_filt = input.bool(true, "Use Markov Transition Filter", group="Decision Logic")
@@ -70,7 +70,6 @@ ep = ta.ema((1 / math.max(ta.stdev(v, lookback_c), 1e-10)) * coherence, tau)
 // ==========================================
 // 3. Normalization & Logits
 // ==========================================
-// BOOTSTRAP FIX: Handle na periods by using cumulative stats
 get_z(src, len) =>
     float _src = nz(src)
     m = ta.sma(_src, len)
@@ -91,7 +90,7 @@ eff  = disp / math.max(path, 1e-10)
 z_comp = get_z(ep * (1 - eff) * (1 - coherence), norm_len)
 
 z_exh = get_z(torque + math.abs(j) * (1 - hurst), norm_len)
-z_chaos = get_z((1 - coherence) * (1 - eff) * ta.stdev(v, lookback_c), norm_len) * 0.7 // Further reduced chaos weight
+z_chaos = get_z((1 - coherence) * (1 - eff) * ta.stdev(v, lookback_c), norm_len) * 0.7
 
 // ==========================================
 // 4. Decision Engine
@@ -109,7 +108,6 @@ s_chaos = math.exp(z_chaos - max_z) / exp_sum
 float max_s = math.max(s_bull, s_bear, s_comp, s_exh, s_chaos)
 int raw_regime = max_s == s_bull ? 0 : max_s == s_bear ? 1 : max_s == s_comp ? 2 : max_s == s_exh ? 3 : 4
 
-// Markov Logic
 var float[] transitions = array.new_float(25, 0.0)
 curr_r_idx = nz(regime[1], 4)
 sum_t = 0.0
@@ -118,7 +116,6 @@ for i = 0 to 4
 sum_t := math.max(sum_t, 1.0)
 p_stay = array.get(transitions, curr_r_idx * 5 + curr_r_idx) / sum_t
 
-// MARKOV GATE FIX: Be more aggressive in allowing state changes if the engine is confident.
 p_transition = array.get(transitions, curr_r_idx * 5 + raw_regime) / sum_t
 bool markov_gate_change = not use_markov_filt or (sum_t < 200) or (p_transition > 0) or (max_s > 0.45)
 
@@ -143,18 +140,18 @@ bool cond_sell = (regime == 1 and regime[1] != 1) or (regime == 1 and trade_stat
 trend_is_dom = (rho > 0.4 and s_bull > s_exh) or (rho < -0.4 and s_bear > s_exh)
 risk_reversal = z_exh > risk_sens and torque > ta.sma(torque, lookback_c) * 1.5
 
-bool cond_exit_long  = (regime == 3 and not trend_is_dom) or (risk_reversal and not trend_is_dom) or rho < -0.3
-bool cond_exit_short = (regime == 3 and not trend_is_dom) or (risk_reversal and not trend_is_dom) or rho > 0.3
+bool cond_exit_long  = trade_state[1] == 1 and ((regime == 3 and not trend_is_dom) or (risk_reversal and not trend_is_dom) or rho < -0.3)
+bool cond_exit_short = trade_state[1] == -1 and ((regime == 3 and not trend_is_dom) or (risk_reversal and not trend_is_dom) or rho > 0.3)
 
 bool buy_sig  = false
 bool sell_sig = false
-bool exit_long = false
-bool exit_short = false
+bool exit_l   = false
+bool exit_s   = false
 
 if trade_state == 1 and cond_exit_long
-    trade_state := 0, exit_long := true
+    trade_state := 0, exit_l := true
 if trade_state == -1 and cond_exit_short
-    trade_state := 0, exit_short := true
+    trade_state := 0, exit_s := true
 if trade_state == 0
     if cond_buy
         trade_state := 1, buy_sig := true
@@ -175,20 +172,32 @@ bgcolor(regime_color)
 
 color body_color = regime == 0 ? color.new(color.green, 30) : regime == 1 ? color.new(color.red, 30) : regime == 2 ? color.new(color.blue, 30) : regime == 3 ? color.new(color.orange, 30) : color.new(color.purple, 30)
 color edge_color = v > 0 ? color.lime : color.maroon
-plotcandle(use_phys_candles ? open : na, high, low, close, title="MPRM 3.6.4 Candles", color=body_color, wickcolor=edge_color, bordercolor=edge_color)
+plotcandle(use_phys_candles ? open : na, high, low, close, title="MPRM Candles", color=body_color, wickcolor=edge_color, bordercolor=edge_color)
 
 var table info = table.new(position.top_right, 2, 12, bgcolor=color.new(color.black, table_transp), border_width=1, border_color=color.gray)
 if barstate.islast
-    table.cell(info, 0, 0, "Regime V3.6.4", text_color=color.white)
+    table.cell(info, 0, 0, "Regime V3.7 (V6)", text_color=color.white)
     table.cell(info, 1, 0, get_n(regime) + " [" + profile_input + "]", text_color=color.white, bgcolor=regime_color)
-    table.cell(info, 0, 1, "Stay Prob.", text_color=color.white)
-    table.cell(info, 1, 1, str.tostring(p_stay * 100, "##") + "%", text_color=color.aqua)
-    table.cell(info, 0, 2, "Hurst (Quality)", text_color=color.white)
-    table.cell(info, 1, 2, str.tostring(hurst, "#.##"), text_color=hurst > 0.5 ? color.lime : color.white)
 
-plotshape(buy_sig, "BUY", shape.triangleup, location.belowbar, color.green, size=size.small, text="BUY")
-plotshape(sell_sig, "SELL", shape.triangledown, location=location.abovebar, color=color.red, size=size.small, text="SELL")
-plotshape(exit_long or exit_short, "EXIT", shape.xcross, location.abovebar, color=color.white, size=size.tiny, text="EXIT")
+    // NEW V3.7: Position Status
+    pos_txt = trade_state == 1 ? "LONG" : trade_state == -1 ? "SHORT" : "FLAT"
+    pos_col = trade_state == 1 ? color.lime : trade_state == -1 ? color.red : color.gray
+    table.cell(info, 0, 1, "Status", text_color=color.white)
+    table.cell(info, 1, 1, pos_txt, text_color=color.white, bgcolor=pos_col)
+
+    table.cell(info, 0, 2, "Stay Prob.", text_color=color.white)
+    table.cell(info, 1, 2, str.tostring(p_stay * 100, "##") + "%", text_color=color.aqua)
+    table.cell(info, 0, 3, "Hurst (Quality)", text_color=color.white)
+    table.cell(info, 1, 3, str.tostring(hurst, "#.##"), text_color=hurst > 0.5 ? color.lime : color.white)
+
+// Visual Links: Entries and Exits linked by color
+plotshape(buy_sig, "BUY", shape.triangleup, location.belowbar, color.lime, size=size.small, text="BUY")
+plotshape(sell_sig, "SELL", shape.triangledown, location.abovebar, color.red, size=size.small, text="SELL")
+
+// EXIT LONG linked to BUY (Lime color)
+plotshape(exit_l, "EXIT LONG", shape.xcross, location.abovebar, color.lime, size=size.tiny, text="EXIT")
+// EXIT SHORT linked to SELL (Red color)
+plotshape(exit_s, "EXIT SHORT", shape.xcross, location.belowbar, color.red, size=size.tiny, text="EXIT")
 
 if bar_index > 0
     idx = nz(regime[1], 4) * 5 + regime
