@@ -24,7 +24,7 @@ stability_thr   = input.float(0.30, "Stability Threshold", minval=0.1, maxval=1.
 risk_sens_base  = input.float(1.5, "Risk Sensitivity", minval=0.5, maxval=3.0, step=0.1, group="Decision Logic")
 hysteresis_base = input.float(0.08, "Trend Hysteresis", minval=0.0, maxval=0.5, step=0.01, group="Decision Logic")
 use_markov_filt = input.bool(true, "Use Markov Transition Filter", group="Decision Logic")
-markov_decay    = input.float(0.99, "Markov Memory Decay", minval=0.9, maxval=1.0, step=0.005, group="Decision Logic", help="Decay factor for transition counts. 1.0 = infinite memory, 0.99 = ~100 bars effective memory.")
+markov_decay    = input.float(0.99, "Markov Memory Decay", minval=0.9, maxval=1.0, step=0.005, group="Decision Logic", tooltip="Decay factor for transition counts. 1.0 = infinite memory, 0.99 = ~100 bars effective memory.")
 
 table_transp    = input.int(40, "Table Transparency", minval=0, maxval=100, group="Visuals")
 use_phys_candles = input.bool(true, "Use Physics Candles", group="Visuals")
