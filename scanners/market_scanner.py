@@ -18,7 +18,7 @@ class MarketScanner:
 
         for symbol in SYMBOLS:
             try:
-                print(f"Analyzing {symbol}...", flush=True)
+                print(f"Analisando {symbol}...", flush=True)
 
                 df_daily = DataLoader.get_ohlcv(symbol, TIMEFRAME_MACRO)
                 df_4h = DataLoader.get_ohlcv(symbol, TIMEFRAME_TACTICAL)
@@ -32,14 +32,16 @@ class MarketScanner:
                 if symbol in open_positions:
                     pos = open_positions[symbol]
 
-                    # Self-healing: ensure all financial data exists using stored leverage
+                    # PROTEÇÃO: NUNCA altera alavancagem de posição aberta (HOLD)
                     if not pos.get('margin_used') or pos.get('margin_used') == 0:
                         notional = pos['size'] * pos['entry']
-                        # Recover original leverage if available, else calculate safely
+                        # Se não tiver alavancagem salva, usa 8x (seu padrão real)
                         lev = pos.get('leverage', 8)
-                        pos['margin_used'] = notional / lev
-                        pos['notional'] = notional
-                        pos['leverage'] = lev
+                        pos.update({
+                            "margin_used": notional / lev,
+                            "notional": notional,
+                            "leverage": lev
+                        })
                         self.pos_engine.update_position(symbol, pos)
 
                     new_stop = TrailingEngine.calculate_new_stop(symbol, pos, df_4h)
@@ -60,35 +62,23 @@ class MarketScanner:
                             action = "CLOSED_STOP"
 
                     results.append({
-                        "symbol": symbol,
-                        "direction": pos["direction"],
-                        "action": action,
-                        "entry": pos["entry"],
-                        "stop": pos["stop"],
-                        "size": pos["size"],
-                        "margin": pos.get("margin_used", 0),
-                        "leverage": pos.get("leverage", 1),
+                        "symbol": symbol, "direction": pos["direction"], "action": action,
+                        "entry": pos["entry"], "stop": pos["stop"], "size": pos["size"],
+                        "margin": pos.get("margin_used", 0), "leverage": pos.get("leverage", 8),
                         "regime": StrategyRouter.get_market_regime(df_daily)
                     })
                     continue
 
                 setup = StrategyRouter.route(df_daily, df_4h)
-
                 if setup:
                     setup = RiskEngine.get_risk_parameters(setup)
                     results.append({
-                        "symbol": symbol,
-                        "direction": setup["direction"],
-                        "action": "ENTER",
-                        "entry": setup["entry"],
-                        "stop": setup["stop"],
-                        "size": setup["position_size"],
-                        "margin": setup.get("margin_required", 0),
-                        "leverage": setup.get("leverage", 1),
+                        "symbol": symbol, "direction": setup["direction"], "action": "ENTER",
+                        "entry": setup["entry"], "stop": setup["stop"], "size": setup["position_size"],
+                        "margin": setup.get("margin_required", 0), "leverage": setup.get("leverage", 1),
                         "regime": setup["regime"]
                     })
-
             except Exception as e:
-                print(f"Error analyzing {symbol}: {e}")
+                print(f"Erro em {symbol}: {e}")
 
         return results, self.pos_engine.get_open_positions()
