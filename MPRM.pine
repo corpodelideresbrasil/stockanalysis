@@ -2,7 +2,7 @@
 // © Jules
 
 //@version=6
-indicator("Market Physics Regime Model V3.6.3 (MPRM Engine)", overlay=true, max_labels_count=500)
+indicator("Market Physics Regime Model V3.6.4 (MPRM Engine)", overlay=true, max_labels_count=500)
 
 // ==========================================
 // 1. Enums & Inputs
@@ -20,7 +20,7 @@ tau             = input.int(10, "Inertia EMA (τ)", minval=1, group="Core Physic
 profile_input   = input.string("EQUITIES", "Asset Physics Profile", options=["CRYPTO", "EQUITIES", "INDICES"], group="Decision Logic")
 asset_profile   = profile_input == "CRYPTO" ? AssetProfile.CRYPTO : profile_input == "INDICES" ? AssetProfile.INDICES : AssetProfile.EQUITIES
 
-stability_thr   = input.float(0.35, "Stability Threshold", minval=0.1, maxval=1.0, step=0.05, group="Decision Logic")
+stability_thr   = input.float(0.30, "Stability Threshold", minval=0.1, maxval=1.0, step=0.05, group="Decision Logic", tooltip="Lowered to 0.30 for better responsiveness")
 risk_sens_base  = input.float(1.5, "Risk Sensitivity", minval=0.5, maxval=3.0, step=0.1, group="Decision Logic")
 hysteresis_base = input.float(0.08, "Trend Hysteresis", minval=0.0, maxval=0.5, step=0.01, group="Decision Logic")
 use_markov_filt = input.bool(true, "Use Markov Transition Filter", group="Decision Logic")
@@ -57,26 +57,27 @@ rho = ta.correlation(close, bar_index, lookback_c)
 coherence = math.abs(rho)
 
 rel_vol = (not na(volume) and volume > 0 ? (volume / ta.sma(volume, lookback_c)) : 1.0)
-mass = rel_vol * ta.stdev(v, lookback_c)
+mass = nz(rel_vol * ta.stdev(v, lookback_c))
 force = mass * a
 displacement_r = (close - ta.sma(close, lookback_c)) / math.max(ta.stdev(close, lookback_c), 1e-10)
 torque = math.abs(displacement_r * force)
 
-// Organized Energy (Phi): Stabilized with coherence
 ek = math.pow(v, 2) * mass
 inertia = ta.ema(mass * math.abs(v), tau)
 phi = coherence * (ek + inertia)
-
-// Potential Energy (Ep)
 ep = ta.ema((1 / math.max(ta.stdev(v, lookback_c), 1e-10)) * coherence, tau)
 
 // ==========================================
 // 3. Normalization & Logits
 // ==========================================
+// BOOTSTRAP FIX: Handle na periods by using cumulative stats
 get_z(src, len) =>
-    m = ta.sma(src, len)
-    s = ta.stdev(src, len)
-    (src - m) / math.max(s, 1e-10)
+    float _src = nz(src)
+    m = ta.sma(_src, len)
+    s = ta.stdev(_src, len)
+    m_eff = na(m) ? (ta.cum(_src) / math.max(bar_index + 1, 1)) : m
+    s_eff = na(s) or s == 0 ? 1.0 : s
+    (_src - m_eff) / s_eff
 
 macro_rho = ta.correlation(close, bar_index, lookback_macro)
 v_momentum = ta.ema(v, 3)
@@ -90,9 +91,7 @@ eff  = disp / math.max(path, 1e-10)
 z_comp = get_z(ep * (1 - eff) * (1 - coherence), norm_len)
 
 z_exh = get_z(torque + math.abs(j) * (1 - hurst), norm_len)
-
-// CHAOS FIX: Reduce multiplier and increase requirements
-z_chaos = get_z((1 - coherence) * (1 - eff) * ta.stdev(v, lookback_c), norm_len) * 0.8
+z_chaos = get_z((1 - coherence) * (1 - eff) * ta.stdev(v, lookback_c), norm_len) * 0.7 // Further reduced chaos weight
 
 // ==========================================
 // 4. Decision Engine
@@ -110,6 +109,7 @@ s_chaos = math.exp(z_chaos - max_z) / exp_sum
 float max_s = math.max(s_bull, s_bear, s_comp, s_exh, s_chaos)
 int raw_regime = max_s == s_bull ? 0 : max_s == s_bear ? 1 : max_s == s_comp ? 2 : max_s == s_exh ? 3 : 4
 
+// Markov Logic
 var float[] transitions = array.new_float(25, 0.0)
 curr_r_idx = nz(regime[1], 4)
 sum_t = 0.0
@@ -118,14 +118,14 @@ for i = 0 to 4
 sum_t := math.max(sum_t, 1.0)
 p_stay = array.get(transitions, curr_r_idx * 5 + curr_r_idx) / sum_t
 
-// Markov bootstrap: looser transition during the first 100 bars
+// MARKOV GATE FIX: Be more aggressive in allowing state changes if the engine is confident.
 p_transition = array.get(transitions, curr_r_idx * 5 + raw_regime) / sum_t
-bool markov_gate_change = not use_markov_filt or (sum_t < 100) or (p_transition > 0.02)
+bool markov_gate_change = not use_markov_filt or (sum_t < 200) or (p_transition > 0) or (max_s > 0.45)
 
 is_trend = regime == 0 or regime == 1
 current_trend_score = regime == 0 ? s_bull : s_bear
 macro_boost = (regime == 0 and macro_rho > 0.5) or (regime == 1 and macro_rho < -0.5) ? 0.05 : 0.0
-stay_gate = p_stay > 0.6 ? 0.12 : 0.04
+stay_gate = p_stay > 0.6 ? 0.10 : 0.04
 
 inertia_gate = is_trend and coherence > 0.7 and phi > inertia
 exit_gate = is_trend ? (raw_regime == regime or (max_s > current_trend_score + hysteresis + stay_gate + macro_boost and not inertia_gate)) : true
@@ -141,11 +141,10 @@ bool cond_buy  = (regime == 0 and regime[1] != 0) or (regime == 0 and trade_stat
 bool cond_sell = (regime == 1 and regime[1] != 1) or (regime == 1 and trade_state[1] == 1)
 
 trend_is_dom = (rho > 0.4 and s_bull > s_exh) or (rho < -0.4 and s_bear > s_exh)
-structural_break = phi < ta.sma(phi, lookback_norm) * 0.7
 risk_reversal = z_exh > risk_sens and torque > ta.sma(torque, lookback_c) * 1.5
 
-bool cond_exit_long  = (regime == 3 and not trend_is_dom) or (risk_reversal and not trend_is_dom) or rho < -0.3 or structural_break
-bool cond_exit_short = (regime == 3 and not trend_is_dom) or (risk_reversal and not trend_is_dom) or rho > 0.3 or structural_break
+bool cond_exit_long  = (regime == 3 and not trend_is_dom) or (risk_reversal and not trend_is_dom) or rho < -0.3
+bool cond_exit_short = (regime == 3 and not trend_is_dom) or (risk_reversal and not trend_is_dom) or rho > 0.3
 
 bool buy_sig  = false
 bool sell_sig = false
@@ -176,16 +175,16 @@ bgcolor(regime_color)
 
 color body_color = regime == 0 ? color.new(color.green, 30) : regime == 1 ? color.new(color.red, 30) : regime == 2 ? color.new(color.blue, 30) : regime == 3 ? color.new(color.orange, 30) : color.new(color.purple, 30)
 color edge_color = v > 0 ? color.lime : color.maroon
-plotcandle(use_phys_candles ? open : na, high, low, close, title="MPRM 3.6.3 Candles", color=body_color, wickcolor=edge_color, bordercolor=edge_color)
+plotcandle(use_phys_candles ? open : na, high, low, close, title="MPRM 3.6.4 Candles", color=body_color, wickcolor=edge_color, bordercolor=edge_color)
 
 var table info = table.new(position.top_right, 2, 12, bgcolor=color.new(color.black, table_transp), border_width=1, border_color=color.gray)
 if barstate.islast
-    table.cell(info, 0, 0, "Regime V3.6.3", text_color=color.white)
+    table.cell(info, 0, 0, "Regime V3.6.4", text_color=color.white)
     table.cell(info, 1, 0, get_n(regime) + " [" + profile_input + "]", text_color=color.white, bgcolor=regime_color)
-    table.cell(info, 0, 1, "Hurst (Quality)", text_color=color.white)
-    table.cell(info, 1, 1, str.tostring(hurst, "#.##"), text_color=hurst > 0.5 ? color.lime : color.white)
-    table.cell(info, 0, 2, "Stay Prob.", text_color=color.white)
-    table.cell(info, 1, 2, str.tostring(p_stay * 100, "##") + "%", text_color=color.aqua)
+    table.cell(info, 0, 1, "Stay Prob.", text_color=color.white)
+    table.cell(info, 1, 1, str.tostring(p_stay * 100, "##") + "%", text_color=color.aqua)
+    table.cell(info, 0, 2, "Hurst (Quality)", text_color=color.white)
+    table.cell(info, 1, 2, str.tostring(hurst, "#.##"), text_color=hurst > 0.5 ? color.lime : color.white)
 
 plotshape(buy_sig, "BUY", shape.triangleup, location.belowbar, color.green, size=size.small, text="BUY")
 plotshape(sell_sig, "SELL", shape.triangledown, location=location.abovebar, color=color.red, size=size.small, text="SELL")
