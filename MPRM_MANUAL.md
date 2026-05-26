@@ -1,4 +1,4 @@
-# Manual do Usuário: Market Physics Regime Model (MPRM) V3.8 (Versão Pine V6)
+# Manual do Usuário: Market Physics Regime Model (MPRM) V3.9 (Versão Pine V6)
 
 O MPRM é um sistema físico-estocástico projetado para identificar regimes de mercado através de analogias com a mecânica clássica e termodinâmica. Em vez de utilizar indicadores técnicos tradicionais, o MPRM modela o preço como um corpo em movimento sujeito a forças de inércia, aceleração e coerência estrutural.
 
@@ -54,11 +54,18 @@ O MPRM V3.3 inclui uma camada operacional explícita para facilitar a tomada de 
     3.  O regime de tendência se inverte (ex: de BULL para BEAR) **E** a direção estrutural ($\rho$) confirma a inversão.
     4.  **Energy Collapse:** Queda significativa da energia estrutural em relação à média histórica, sem proteção do macro filtro.
 
+**Novidade V3.9 (Hurst Exit Overrides & Markov Decay):**
+*   **Hurst Exit Overrides:** Introdução de gatilhos de saída imediata baseados em anti-persistência. Se $H < 0.40$ (Forte Reversão), o sistema encerra a posição ignorando a probabilidade de permanência de Markov, otimizando a saída em topos/fundos de exaustão.
+*   **Classificação Granular de Hurst:**
+    *   *EXTREME:* $H > 0.75$ (Tendência extremamente forte, possível fragilidade estrutural).
+    *   *PERSISTENCE:* $H > 0.52$ (Tendência saudável).
+    *   *RANDOM:* $0.48 \leq H \leq 0.52$ (Ruído).
+    *   *CONSOLIDATION:* $0.40 \leq H < 0.48$ (Perda de memória direcional).
+    *   *REVERSION:* $H < 0.40$ (Forte viés de retorno à média).
+*   **Markov Memory Decay:** Implementação de um fator de decaimento (`markov_decay`) para a matriz de transição. Isso permite que o modelo "esqueça" comportamentos antigos e se adapte mais rapidamente às mudanças recentes na dinâmica do ativo.
+
 **Novidade V3.8 (Hurst Classification & Predictive Markov):**
-*   **Classificação de Hurst:** O valor do Expoente de Hurst agora é traduzido em estados compreensíveis:
-    *   *PERSISTENCE:* O mercado está em um regime de tendência sustentada.
-    *   *RANDOM:* O mercado está em comportamento de passeio aleatório (ruído).
-    *   *REVERSION:* O mercado está em regime de retorno à média.
+*   **Classificação de Hurst:** O valor do Expoente de Hurst traduzido em estados compreensíveis.
 *   **Previsão de Próximo Estado:** O dashboard agora exibe qual é o regime mais provável após o atual, baseado na memória estatística da Matriz de Markov, incluindo a probabilidade percentual dessa transição.
 
 **Novidade V3.7 (Position Tracking & Visual Linking):**
