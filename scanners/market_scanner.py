@@ -32,12 +32,13 @@ class MarketScanner:
                 if symbol in open_positions:
                     pos = open_positions[symbol]
 
-                    # Self-healing: Recalculate with Dynamic Leverage
-                    _, margin, notional, leverage = RiskEngine.calculate_position_size(pos['entry'], pos['stop'])
-                    pos['margin_used'] = margin
-                    pos['notional'] = notional
-                    pos['leverage'] = leverage
-                    self.pos_engine.update_position(symbol, {"margin_used": margin, "notional": notional, "leverage": leverage})
+                    # NEVER modify leverage of an open position (Exchange constraint)
+                    # Only calculate missing data if necessary, without overwriting existing leverage
+                    if not pos.get('margin_used') or pos.get('margin_used') == 0:
+                        _, margin, notional, _ = RiskEngine.calculate_position_size(pos['entry'], pos['stop'])
+                        pos['margin_used'] = margin
+                        pos['notional'] = notional
+                        self.pos_engine.update_position(symbol, {"margin_used": margin, "notional": notional})
 
                     new_stop = TrailingEngine.calculate_new_stop(symbol, pos, df_4h)
                     if new_stop:

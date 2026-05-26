@@ -44,6 +44,7 @@ class PositionEngine:
             "size": setup.get("position_size") or setup.get("size", 0),
             "margin_used": setup.get("margin_required") or setup.get("margin", 0),
             "notional": setup.get("notional_value") or setup.get("notional", 0),
+            "leverage": setup.get("leverage") or 1,
             "opened_at": str(setup.get("timestamp", "manual"))
         }
         self._save_positions()
