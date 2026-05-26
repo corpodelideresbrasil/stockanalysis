@@ -1,4 +1,4 @@
-# Manual do Usuário: Market Physics Regime Model (MPRM) V3.6.2 (Versão Pine V6)
+# Manual do Usuário: Market Physics Regime Model (MPRM) V3.6.3 (Versão Pine V6)
 
 O MPRM é um sistema físico-estocástico projetado para identificar regimes de mercado através de analogias com a mecânica clássica e termodinâmica. Em vez de utilizar indicadores técnicos tradicionais, o MPRM modela o preço como um corpo em movimento sujeito a forças de inércia, aceleração e coerência estrutural.
 
@@ -58,7 +58,7 @@ O MPRM V3.3 inclui uma camada operacional explícita para facilitar a tomada de 
 *   **Migração para Pine V6:** Código modernizado com `enums` e tipagem estrita para maior performance e estabilidade.
 *   **Hurst Exponent (Proxy):** Substituição da coerência linear por uma medida de persistência fractal. H > 0.5 indica tendência estruturada; H < 0.5 indica comportamento de reversão à média ou caos.
 *   **Torque Estrutural ($\tau = r \times F$):** Nova métrica de exaustão que mede a força de "rotação de regime". Detecta quando o preço está sobre-estendido em relação à sua massa e força de aceleração.
-*   **HMM-Lite (Markov Filter):** As transições de regime agora são filtradas estatisticamente. O sistema "aprende" as transições prováveis e bloqueia mudanças de estado que não possuem relevância estatística histórica no gráfico atual.
+*   **HMM-Lite (Markov Filter):** As transições de regime agora são filtradas estatisticamente. Na V3.6.3, foi adicionado um período de bootstrap (100 barras) para evitar que o sistema fique travado em Caos por falta de dados iniciais.
 *   **Separação $E_k$ e $E_p$:** Diferenciação clara entre Energia Cinética (movimento ativo) e Energia Potencial (acúmulo em compressão).
 
 **Novidade V3.3 (Inertia Persistence & Physical Gating):**

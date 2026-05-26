@@ -2,10 +2,10 @@
 // © Jules
 
 //@version=6
-indicator("Market Physics Regime Model V3.6.2 (MPRM Engine)", overlay=true, max_labels_count=500)
+indicator("Market Physics Regime Model V3.6.3 (MPRM Engine)", overlay=true, max_labels_count=500)
 
 // ==========================================
-// 1. Enums & Inputs (Modern PS V6)
+// 1. Enums & Inputs
 // ==========================================
 enum AssetProfile
     CRYPTO
@@ -23,12 +23,12 @@ asset_profile   = profile_input == "CRYPTO" ? AssetProfile.CRYPTO : profile_inpu
 stability_thr   = input.float(0.35, "Stability Threshold", minval=0.1, maxval=1.0, step=0.05, group="Decision Logic")
 risk_sens_base  = input.float(1.5, "Risk Sensitivity", minval=0.5, maxval=3.0, step=0.1, group="Decision Logic")
 hysteresis_base = input.float(0.08, "Trend Hysteresis", minval=0.0, maxval=0.5, step=0.01, group="Decision Logic")
-use_markov_filt = input.bool(true, "Use Markov Transition Filter", group="Decision Logic", tooltip="Only allows regime entry if transition probability is statistically significant")
+use_markov_filt = input.bool(true, "Use Markov Transition Filter", group="Decision Logic")
 
 table_transp    = input.int(40, "Table Transparency", minval=0, maxval=100, group="Visuals")
 use_phys_candles = input.bool(true, "Use Physics Candles", group="Visuals")
 
-// Impedance Matching Logic
+// Impedance Matching
 float m_sens = asset_profile == AssetProfile.CRYPTO ? 1.4 : asset_profile == AssetProfile.INDICES ? 0.75 : 1.0
 float m_hyst = asset_profile == AssetProfile.CRYPTO ? 1.3 : asset_profile == AssetProfile.INDICES ? 1.2 : 1.0
 float m_norm = asset_profile == AssetProfile.CRYPTO ? 1.5 : asset_profile == AssetProfile.INDICES ? 0.8 : 1.0
@@ -38,7 +38,7 @@ hysteresis = hysteresis_base * m_hyst
 norm_len   = math.round(lookback_norm * m_norm)
 
 // ==========================================
-// 2. Advanced Physical Quantities
+// 2. Physical Quantities
 // ==========================================
 v = math.log(close / close[1])
 a = v - v[1]
@@ -53,6 +53,8 @@ get_hurst(len) =>
 get_n(r) => r == 0 ? "BULL" : r == 1 ? "BEAR" : r == 2 ? "COMP" : r == 3 ? "EXH" : "CHAOS"
 
 hurst = get_hurst(lookback_c)
+rho = ta.correlation(close, bar_index, lookback_c)
+coherence = math.abs(rho)
 
 rel_vol = (not na(volume) and volume > 0 ? (volume / ta.sma(volume, lookback_c)) : 1.0)
 mass = rel_vol * ta.stdev(v, lookback_c)
@@ -60,10 +62,13 @@ force = mass * a
 displacement_r = (close - ta.sma(close, lookback_c)) / math.max(ta.stdev(close, lookback_c), 1e-10)
 torque = math.abs(displacement_r * force)
 
+// Organized Energy (Phi): Stabilized with coherence
 ek = math.pow(v, 2) * mass
 inertia = ta.ema(mass * math.abs(v), tau)
-phi = hurst * (ek + inertia)
-ep = ta.ema((1 / math.max(ta.stdev(v, lookback_c), 1e-10)) * hurst, tau)
+phi = coherence * (ek + inertia)
+
+// Potential Energy (Ep)
+ep = ta.ema((1 / math.max(ta.stdev(v, lookback_c), 1e-10)) * coherence, tau)
 
 // ==========================================
 // 3. Normalization & Logits
@@ -73,23 +78,24 @@ get_z(src, len) =>
     s = ta.stdev(src, len)
     (src - m) / math.max(s, 1e-10)
 
-rho = ta.correlation(close, bar_index, lookback_c)
 macro_rho = ta.correlation(close, bar_index, lookback_macro)
-
 v_momentum = ta.ema(v, 3)
+
 z_bull = get_z(rho > 0.05 ? (phi + v_momentum * 10) : -phi, norm_len) + (macro_rho > 0.3 ? 0.5 : 0)
 z_bear = get_z(rho < -0.05 ? (phi - v_momentum * 10) : -phi, norm_len) + (macro_rho < -0.3 ? 0.5 : 0)
 
 path = math.sum(math.abs(v), lookback_c)
 disp = math.abs(math.sum(v, lookback_c))
 eff  = disp / math.max(path, 1e-10)
-z_comp = get_z(ep * (1 - eff) * (1 - math.abs(rho)), norm_len)
+z_comp = get_z(ep * (1 - eff) * (1 - coherence), norm_len)
 
 z_exh = get_z(torque + math.abs(j) * (1 - hurst), norm_len)
-z_chaos = get_z((1 - hurst) * (1 - eff) * ta.stdev(v, lookback_c), norm_len)
+
+// CHAOS FIX: Reduce multiplier and increase requirements
+z_chaos = get_z((1 - coherence) * (1 - eff) * ta.stdev(v, lookback_c), norm_len) * 0.8
 
 // ==========================================
-// 4. Decision Engine (Markov HMM-Lite)
+// 4. Decision Engine
 // ==========================================
 var int regime = 4
 float max_z = math.max(z_bull, z_bear, z_comp, z_exh, z_chaos)
@@ -104,7 +110,6 @@ s_chaos = math.exp(z_chaos - max_z) / exp_sum
 float max_s = math.max(s_bull, s_bear, s_comp, s_exh, s_chaos)
 int raw_regime = max_s == s_bull ? 0 : max_s == s_bear ? 1 : max_s == s_comp ? 2 : max_s == s_exh ? 3 : 4
 
-// Markov Probabilities
 var float[] transitions = array.new_float(25, 0.0)
 curr_r_idx = nz(regime[1], 4)
 sum_t = 0.0
@@ -113,16 +118,16 @@ for i = 0 to 4
 sum_t := math.max(sum_t, 1.0)
 p_stay = array.get(transitions, curr_r_idx * 5 + curr_r_idx) / sum_t
 
-// HMM-Lite Transition Filter
+// Markov bootstrap: looser transition during the first 100 bars
 p_transition = array.get(transitions, curr_r_idx * 5 + raw_regime) / sum_t
-bool markov_gate_change = not use_markov_filt or (sum_t < 50) or (p_transition > 0.05)
+bool markov_gate_change = not use_markov_filt or (sum_t < 100) or (p_transition > 0.02)
 
 is_trend = regime == 0 or regime == 1
 current_trend_score = regime == 0 ? s_bull : s_bear
 macro_boost = (regime == 0 and macro_rho > 0.5) or (regime == 1 and macro_rho < -0.5) ? 0.05 : 0.0
 stay_gate = p_stay > 0.6 ? 0.12 : 0.04
 
-inertia_gate = is_trend and hurst > 0.55 and phi > inertia
+inertia_gate = is_trend and coherence > 0.7 and phi > inertia
 exit_gate = is_trend ? (raw_regime == regime or (max_s > current_trend_score + hysteresis + stay_gate + macro_boost and not inertia_gate)) : true
 
 if max_s > stability_thr and exit_gate and markov_gate_change
@@ -171,18 +176,16 @@ bgcolor(regime_color)
 
 color body_color = regime == 0 ? color.new(color.green, 30) : regime == 1 ? color.new(color.red, 30) : regime == 2 ? color.new(color.blue, 30) : regime == 3 ? color.new(color.orange, 30) : color.new(color.purple, 30)
 color edge_color = v > 0 ? color.lime : color.maroon
-plotcandle(use_phys_candles ? open : na, high, low, close, title="MPRM 3.6 Candles", color=body_color, wickcolor=edge_color, bordercolor=edge_color)
+plotcandle(use_phys_candles ? open : na, high, low, close, title="MPRM 3.6.3 Candles", color=body_color, wickcolor=edge_color, bordercolor=edge_color)
 
 var table info = table.new(position.top_right, 2, 12, bgcolor=color.new(color.black, table_transp), border_width=1, border_color=color.gray)
 if barstate.islast
-    table.cell(info, 0, 0, "Regime V3.6.2 (V6)", text_color=color.white)
+    table.cell(info, 0, 0, "Regime V3.6.3", text_color=color.white)
     table.cell(info, 1, 0, get_n(regime) + " [" + profile_input + "]", text_color=color.white, bgcolor=regime_color)
-    table.cell(info, 0, 1, "Hurst (Persistence)", text_color=color.white)
-    table.cell(info, 1, 1, str.tostring(hurst, "#.##"), text_color=hurst > 0.55 ? color.lime : hurst < 0.45 ? color.fuchsia : color.white)
-    table.cell(info, 0, 2, "Structural Torque", text_color=color.white)
-    table.cell(info, 1, 2, str.tostring(torque, "#.###"), text_color=torque > ta.sma(torque, 20) * 1.5 ? color.red : color.gray)
-    table.cell(info, 0, 3, "Stay Prob.", text_color=color.white)
-    table.cell(info, 1, 3, str.tostring(p_stay * 100, "##") + "%", text_color=color.aqua)
+    table.cell(info, 0, 1, "Hurst (Quality)", text_color=color.white)
+    table.cell(info, 1, 1, str.tostring(hurst, "#.##"), text_color=hurst > 0.5 ? color.lime : color.white)
+    table.cell(info, 0, 2, "Stay Prob.", text_color=color.white)
+    table.cell(info, 1, 2, str.tostring(p_stay * 100, "##") + "%", text_color=color.aqua)
 
 plotshape(buy_sig, "BUY", shape.triangleup, location.belowbar, color.green, size=size.small, text="BUY")
 plotshape(sell_sig, "SELL", shape.triangledown, location=location.abovebar, color=color.red, size=size.small, text="SELL")
