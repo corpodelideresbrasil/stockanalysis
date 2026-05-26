@@ -1,4 +1,4 @@
-# Manual do Usuário: Market Physics Regime Model (MPRM) V4.0 (Versão Pine V6)
+# Manual do Usuário: Market Physics Regime Model (MPRM) V4.1 (Versão Pine V6)
 
 O MPRM é um sistema físico-estocástico projetado para identificar regimes de mercado através de analogias com a mecânica clássica e termodinâmica. Em vez de utilizar indicadores técnicos tradicionais, o MPRM modela o preço como um corpo em movimento sujeito a forças de inércia, aceleração e coerência estrutural.
 
@@ -53,6 +53,10 @@ O MPRM V3.3 inclui uma camada operacional explícita para facilitar a tomada de 
     2.  Surge um **Risco de Reversão** (‼) severo (combinação de exaustão, desaceleração e divergência).
     3.  O regime de tendência se inverte (ex: de BULL para BEAR) **E** a direção estrutural ($\rho$) confirma a inversão.
     4.  **Energy Collapse:** Queda significativa da energia estrutural em relação à média histórica, sem proteção do macro filtro.
+
+**Novidade V4.1 (Intra-bar Physics & Absorption):**
+*   **Física de Pavios (Intra-bar Work):** O modelo agora analisa o "jogo de forças" dentro de cada candle. Pavios longos resultantes de tentativas de inversão frustradas são modelados como **Energia de Absorção**.
+*   **Reforço de Inércia:** Se uma força contrária tenta empurrar o preço mas a tendência a absorve (deixando um pavio), essa energia é injetada nos logits de regime como suporte, impedindo saídas prematuras e confirmando a dominância da inércia atual.
 
 **Novidade V4.0 (Inertia-Hurst Coupling & Dynamic Stability):**
 *   **Inertia-Hurst Coupling:** O sistema agora utiliza o Expoente de Hurst para reforçar a inércia do regime. Quando $H > 0.60$ (Persistência), o custo estatístico para sair de uma tendência aumenta (`hurst_boost`), evitando o "flickering" (trocas rápidas de sinal) em tendências macro.

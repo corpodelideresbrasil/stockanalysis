@@ -2,7 +2,7 @@
 // © Jules
 
 //@version=6
-indicator("Market Physics Regime Model V4.0 (MPRM Engine)", overlay=true, max_labels_count=500)
+indicator("Market Physics Regime Model V4.1 (MPRM Engine)", overlay=true, max_labels_count=500)
 
 // ==========================================
 // 1. Enums & Inputs
@@ -68,6 +68,13 @@ inertia = ta.ema(mass * math.abs(v), tau)
 phi = coherence * (ek + inertia)
 ep = ta.ema((1 / math.max(ta.stdev(v, lookback_c), 1e-10)) * coherence, tau)
 
+// V4.1 Intra-bar Physics (Absorption & Rejection)
+intra_work = high - low
+upper_wick = high - math.max(open, close)
+lower_wick = math.min(open, close) - low
+absorption_bull = (lower_wick / math.max(intra_work, 1e-10)) * mass
+absorption_bear = (upper_wick / math.max(intra_work, 1e-10)) * mass
+
 // ==========================================
 // 3. Normalization & Logits
 // ==========================================
@@ -82,8 +89,9 @@ get_z(src, len) =>
 macro_rho = ta.correlation(close, bar_index, lookback_macro)
 v_momentum = ta.ema(v, 3)
 
-z_bull = get_z(rho > 0.05 ? (phi + v_momentum * 10) : -phi, norm_len) + (macro_rho > 0.3 ? 0.5 : 0)
-z_bear = get_z(rho < -0.05 ? (phi - v_momentum * 10) : -phi, norm_len) + (macro_rho < -0.3 ? 0.5 : 0)
+// V4.1 Injecting Absorption Energy into Logits
+z_bull = get_z(rho > 0.05 ? (phi + v_momentum * 10 + absorption_bull * 5) : -phi, norm_len) + (macro_rho > 0.3 ? 0.5 : 0)
+z_bear = get_z(rho < -0.05 ? (phi - v_momentum * 10 + absorption_bear * 5) : -phi, norm_len) + (macro_rho < -0.3 ? 0.5 : 0)
 
 path = math.sum(math.abs(v), lookback_c)
 disp = math.abs(math.sum(v, lookback_c))
@@ -182,7 +190,7 @@ plotcandle(use_phys_candles ? open : na, high, low, close, title="MPRM Candles",
 
 var table info = table.new(position.top_right, 2, 14, bgcolor=color.new(color.black, table_transp), border_width=1, border_color=color.gray)
 if barstate.islast
-    table.cell(info, 0, 0, "Regime V4.0 (V6)", text_color=color.white)
+    table.cell(info, 0, 0, "Regime V4.1 (V6)", text_color=color.white)
     table.cell(info, 1, 0, get_n(regime) + " [" + profile_input + "]", text_color=color.white, bgcolor=regime_color)
 
     pos_txt = trade_state == 1 ? "LONG" : trade_state == -1 ? "SHORT" : "FLAT"
