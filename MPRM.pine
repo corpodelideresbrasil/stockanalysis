@@ -2,7 +2,7 @@
 // © Jules
 
 //@version=6
-indicator("Market Physics Regime Model V4.1 (MPRM Engine)", overlay=true, max_labels_count=500)
+indicator("Market Physics Regime Model V4.2 (MPRM Engine)", overlay=true, max_labels_count=500)
 
 // ==========================================
 // 1. Enums & Inputs
@@ -154,8 +154,11 @@ bool cond_sell = (regime == 1 and regime[1] != 1) or (regime == 1 and trade_stat
 trend_is_dom = (rho > 0.4 and s_bull > s_exh) or (rho < -0.4 and s_bear > s_exh)
 risk_reversal = z_exh > risk_sens and torque > ta.sma(torque, lookback_c) * 1.5
 
-bool cond_exit_long  = trade_state[1] == 1 and ((regime == 3 and not trend_is_dom) or (risk_reversal and not trend_is_dom) or rho < -0.3 or hurst < 0.40)
-bool cond_exit_short = trade_state[1] == -1 and ((regime == 3 and not trend_is_dom) or (risk_reversal and not trend_is_dom) or rho > 0.3 or hurst < 0.40)
+// V4.2 Dynamic Hurst Threshold (Macro-Aware)
+// In strong macro trends (macro_rho > 0.4), we allow for deeper "breathing" (Hurst down to 0.35)
+h_exit_thr = (regime == 0 and macro_rho > 0.4) or (regime == 1 and macro_rho < -0.4) ? 0.35 : 0.40
+bool cond_exit_long  = trade_state[1] == 1 and ((regime == 3 and not trend_is_dom) or (risk_reversal and not trend_is_dom) or rho < -0.3 or hurst < h_exit_thr)
+bool cond_exit_short = trade_state[1] == -1 and ((regime == 3 and not trend_is_dom) or (risk_reversal and not trend_is_dom) or rho > 0.3 or hurst < h_exit_thr)
 
 bool buy_sig  = false
 bool sell_sig = false
@@ -190,7 +193,7 @@ plotcandle(use_phys_candles ? open : na, high, low, close, title="MPRM Candles",
 
 var table info = table.new(position.top_right, 2, 14, bgcolor=color.new(color.black, table_transp), border_width=1, border_color=color.gray)
 if barstate.islast
-    table.cell(info, 0, 0, "Regime V4.1 (V6)", text_color=color.white)
+    table.cell(info, 0, 0, "Regime V4.2 (V6)", text_color=color.white)
     table.cell(info, 1, 0, get_n(regime) + " [" + profile_input + "]", text_color=color.white, bgcolor=regime_color)
 
     pos_txt = trade_state == 1 ? "LONG" : trade_state == -1 ? "SHORT" : "FLAT"
