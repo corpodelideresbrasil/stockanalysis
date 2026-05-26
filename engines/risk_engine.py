@@ -1,31 +1,45 @@
-from config.config import INITIAL_CAPITAL, RISK_PER_TRADE, DEFAULT_LEVERAGE, MAX_TRADE_NOTIONAL_PCT
+from config.config import INITIAL_CAPITAL, RISK_PER_TRADE, MAX_TRADE_NOTIONAL_PCT
 
 class RiskEngine:
     """
-    Cálculo Institucional: Diferencia Quantidade de Moedas e Valor Financeiro.
+    Cálculo Institucional: A alavancagem é um subproduto do risco financeiro.
     """
 
     @staticmethod
     def calculate_position_size(entry, stop, capital=INITIAL_CAPITAL):
         if entry == stop or not entry:
-            return 0, 0, 0
+            return 0, 0, 0, 1
 
-        # 1. Tamanho pelo Risco (Quantas moedas comprar para arriscar 2% do capital)
+        # 1. Valor Financeiro em Risco (Ex: 4 USD para capital de 200)
         risk_amount = capital * RISK_PER_TRADE
-        distance = abs(entry - stop)
-        size_by_risk = risk_amount / distance
 
-        # 2. Teto de Exposição (Não permite investir mais de 100% do saldo em uma moeda)
+        # 2. Distância Percentual do Stop (Ex: 0.05 para 5%)
+        dist_pct = abs(entry - stop) / entry
+        dist_pct = max(dist_pct, 0.005) # Trava de segurança contra divisão por zero
+
+        # 3. VALOR NOMINAL (NOTIONAL) - Quanto eu preciso ter para que dist_pct = risk_amount
+        # Formula: Risco / Distancia
+        notional_by_risk = risk_amount / dist_pct
+
+        # 4. Teto de Exposição Institucional (Capping)
+        # Nenhuma posição individual excederá MAX_TRADE_NOTIONAL_PCT do capital
         max_notional = capital * MAX_TRADE_NOTIONAL_PCT
-        size_by_cap = max_notional / entry
+        final_notional = min(notional_by_risk, max_notional)
 
-        # O tamanho final é o menor entre o risco planejado e o teto de segurança
-        final_qty = min(size_by_risk, size_by_cap)
+        # 5. ALAVANCAGEM DINÂMICA RECOMENDADA
+        # É o Valor Nominal dividido pelo capital real que você quer usar para essa margem.
+        # Em gestão profissional, a alavancagem sugerida para a corretora deve ser tal que
+        # o valor do Stop Loss seja suportado sem liquidar.
+        # Sugerimos alavancagem tal que a MARGEM seja IGUAL ao valor em RISCO (Eficiência Máxima).
+        recommended_leverage = final_notional / risk_amount
 
-        notional_value = final_qty * entry # Valor real da posição no mercado
-        margin_required = notional_value / DEFAULT_LEVERAGE # Dinheiro "travado" na Binance
+        # Arredondamos para baixo e limitamos para evitar excessos
+        final_leverage = min(max(1, int(recommended_leverage)), 20)
 
-        return final_qty, margin_required, notional_value
+        final_qty = final_notional / entry
+        margin_required = final_notional / final_leverage
+
+        return final_qty, margin_required, final_notional, final_leverage
 
     @staticmethod
     def get_risk_parameters(setup, capital=INITIAL_CAPITAL):

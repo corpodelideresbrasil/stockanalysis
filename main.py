@@ -42,7 +42,7 @@ def main():
 
             print(
                 f"{r['symbol']:<{w_tk}} {r['direction']:<{w_dir}} {action_str:<{w_act}} "
-                f"{r['entry']:<{w_ent}.4f} {r['stop']:<{w_stp}.4f} {int(DEFAULT_LEVERAGE):<{w_lev}} "
+                f"{r['entry']:<{w_ent}.4f} {r['stop']:<{w_stp}.4f} {int(r.get('leverage', 1)):<{w_lev}} "
                 f"{qtd_usdt:<{w_val}.2f} {r.get('margin', 0):<{w_mar}.2f}"
             )
 

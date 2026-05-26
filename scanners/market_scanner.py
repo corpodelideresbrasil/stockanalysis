@@ -32,12 +32,12 @@ class MarketScanner:
                 if symbol in open_positions:
                     pos = open_positions[symbol]
 
-                    # Self-healing: if margin is missing, calculate it
-                    if not pos.get('margin_used') or pos.get('margin_used') == 0:
-                        _, margin, notional = RiskEngine.calculate_position_size(pos['entry'], pos['stop'])
-                        pos['margin_used'] = margin
-                        pos['notional'] = notional
-                        self.pos_engine.update_position(symbol, {"margin_used": margin, "notional": notional})
+                    # Self-healing: Recalculate with Dynamic Leverage
+                    _, margin, notional, leverage = RiskEngine.calculate_position_size(pos['entry'], pos['stop'])
+                    pos['margin_used'] = margin
+                    pos['notional'] = notional
+                    pos['leverage'] = leverage
+                    self.pos_engine.update_position(symbol, {"margin_used": margin, "notional": notional, "leverage": leverage})
 
                     new_stop = TrailingEngine.calculate_new_stop(symbol, pos, df_4h)
                     if new_stop:
@@ -62,9 +62,10 @@ class MarketScanner:
                         "action": action,
                         "entry": pos["entry"],
                         "stop": pos["stop"],
-                        "target": pos["target"],
+                        "target": pos.get("target"),
                         "size": pos["size"],
                         "margin": pos.get("margin_used", 0),
+                        "leverage": pos.get("leverage", 1),
                         "regime": StrategyRouter.get_market_regime(df_daily)
                     })
                     continue
@@ -79,9 +80,10 @@ class MarketScanner:
                         "action": "ENTER",
                         "entry": setup["entry"],
                         "stop": setup["stop"],
-                        "target": setup["target"],
+                        "target": setup.get("target"),
                         "size": setup["position_size"],
                         "margin": setup.get("margin_required", 0),
+                        "leverage": setup.get("leverage", 1),
                         "regime": setup["regime"]
                     })
 
