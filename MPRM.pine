@@ -2,7 +2,7 @@
 // © Jules
 
 //@version=6
-indicator("Market Physics Regime Model V3.6.1 (MPRM Engine)", overlay=true, max_labels_count=500)
+indicator("Market Physics Regime Model V3.6.2 (MPRM Engine)", overlay=true, max_labels_count=500)
 
 // ==========================================
 // 1. Enums & Inputs (Modern PS V6)
@@ -48,7 +48,7 @@ get_hurst(len) =>
     range_p = ta.highest(close, len) - ta.lowest(close, len)
     std_p = ta.stdev(close, len)
     h = math.log(math.max(range_p, 1e-10) / math.max(std_p, 1e-10)) / math.log(len)
-    math.clamp(h, 0.0, 1.0)
+    math.max(0.0, math.min(1.0, h))
 
 get_n(r) => r == 0 ? "BULL" : r == 1 ? "BEAR" : r == 2 ? "COMP" : r == 3 ? "EXH" : "CHAOS"
 
@@ -113,10 +113,8 @@ for i = 0 to 4
 sum_t := math.max(sum_t, 1.0)
 p_stay = array.get(transitions, curr_r_idx * 5 + curr_r_idx) / sum_t
 
-// NEW V3.6: HMM-Lite Transition Filter
-// Calculate probability of moving to raw_regime from current state
+// HMM-Lite Transition Filter
 p_transition = array.get(transitions, curr_r_idx * 5 + raw_regime) / sum_t
-// Markov gate allows change if P(Transition) > 0 or if we don't have enough data (sum_t < 100)
 bool markov_gate_change = not use_markov_filt or (sum_t < 50) or (p_transition > 0.05)
 
 is_trend = regime == 0 or regime == 1
@@ -177,7 +175,7 @@ plotcandle(use_phys_candles ? open : na, high, low, close, title="MPRM 3.6 Candl
 
 var table info = table.new(position.top_right, 2, 12, bgcolor=color.new(color.black, table_transp), border_width=1, border_color=color.gray)
 if barstate.islast
-    table.cell(info, 0, 0, "Regime V3.6.1 (V6)", text_color=color.white)
+    table.cell(info, 0, 0, "Regime V3.6.2 (V6)", text_color=color.white)
     table.cell(info, 1, 0, get_n(regime) + " [" + profile_input + "]", text_color=color.white, bgcolor=regime_color)
     table.cell(info, 0, 1, "Hurst (Persistence)", text_color=color.white)
     table.cell(info, 1, 1, str.tostring(hurst, "#.##"), text_color=hurst > 0.55 ? color.lime : hurst < 0.45 ? color.fuchsia : color.white)
