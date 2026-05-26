@@ -32,13 +32,15 @@ class MarketScanner:
                 if symbol in open_positions:
                     pos = open_positions[symbol]
 
-                    # NEVER modify leverage of an open position (Exchange constraint)
-                    # Only calculate missing data if necessary, without overwriting existing leverage
+                    # Self-healing: ensure all financial data exists using stored leverage
                     if not pos.get('margin_used') or pos.get('margin_used') == 0:
-                        _, margin, notional, _ = RiskEngine.calculate_position_size(pos['entry'], pos['stop'])
-                        pos['margin_used'] = margin
+                        notional = pos['size'] * pos['entry']
+                        # Recover original leverage if available, else calculate safely
+                        lev = pos.get('leverage', 8)
+                        pos['margin_used'] = notional / lev
                         pos['notional'] = notional
-                        self.pos_engine.update_position(symbol, {"margin_used": margin, "notional": notional})
+                        pos['leverage'] = lev
+                        self.pos_engine.update_position(symbol, pos)
 
                     new_stop = TrailingEngine.calculate_new_stop(symbol, pos, df_4h)
                     if new_stop:
@@ -63,7 +65,6 @@ class MarketScanner:
                         "action": action,
                         "entry": pos["entry"],
                         "stop": pos["stop"],
-                        "target": pos.get("target"),
                         "size": pos["size"],
                         "margin": pos.get("margin_used", 0),
                         "leverage": pos.get("leverage", 1),
@@ -81,7 +82,6 @@ class MarketScanner:
                         "action": "ENTER",
                         "entry": setup["entry"],
                         "stop": setup["stop"],
-                        "target": setup.get("target"),
                         "size": setup["position_size"],
                         "margin": setup.get("margin_required", 0),
                         "leverage": setup.get("leverage", 1),
