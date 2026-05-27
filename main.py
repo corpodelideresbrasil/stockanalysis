@@ -102,34 +102,53 @@ def main():
     current_leverage, fator_reducao = calculate_and_display_summary(results, INITIAL_CAPITAL, MAX_PORTFOLIO_LEVERAGE)
     print("=" * 135)
 
-    # Bloco de Gerenciamento Manual
-    if latest_open:
+    # Bloco de Gerenciamento Manual (Loop Interativo)
+    while latest_open:
         print("\n🛠️ GERENCIAMENTO MANUAL")
-        if input("Deseja encerrar ou reduzir alguma posição manualmente? (s/n): ").lower() == 's':
-            tk_list = list(latest_open.keys())
-            for i, tk in enumerate(tk_list): print(f"[{i}] {tk}")
-            try:
-                idx = int(input("Ativo nº: ")); pct = float(input("Porcentagem (0.1 a 1.0): "))
-                symbol_to_close = tk_list[idx]
-                if scanner.pos_engine.close_position(symbol_to_close, "MANUAL", 0, partial_pct=pct):
-                    print(f"✅ Posição {symbol_to_close} atualizada!")
+        ans = input("Deseja encerrar ou reduzir alguma posição manualmente? (s/n): ").lower()
+        if ans != 's':
+            break
 
-                    # Se fechou totalmente (100%), remove dos resultados para o próximo cálculo
-                    if pct >= 1.0:
-                        results = [r for r in results if r['symbol'] != symbol_to_close]
-                    else:
-                        # Se reduziu, atualiza o item correspondente em results
-                        for r in results:
-                            if r['symbol'] == symbol_to_close:
-                                r['size'] *= (1.0 - pct)
-                                r['margin'] *= (1.0 - pct)
+        tk_list = list(latest_open.keys())
+        for i, tk in enumerate(tk_list):
+            pos = latest_open[tk]
+            print(f"[{i}] {tk} (Qtd: {pos['size']:.4f}, Margem: {pos.get('margin_used', 0):.2f} USDT)")
 
-                    # Recalcula e mostra o novo estado do portfólio
-                    print("\n--- Novo estado do portfólio após ajuste manual ---")
-                    current_leverage, fator_reducao = calculate_and_display_summary(results, INITIAL_CAPITAL, MAX_PORTFOLIO_LEVERAGE)
-                    print("-" * 50)
-            except Exception as e:
-                print(f"⚠️ Erro na entrada ou processamento: {e}")
+        try:
+            choice = input("Ativo nº (ou 'c' para cancelar): ").lower()
+            if choice == 'c': continue
+
+            idx = int(choice)
+            if not (0 <= idx < len(tk_list)):
+                print("⚠️ Índice inválido.")
+                continue
+
+            pct = float(input("Porcentagem para encerrar (0.1 a 1.0): "))
+            symbol_to_close = tk_list[idx]
+
+            if scanner.pos_engine.close_position(symbol_to_close, "MANUAL", 0, partial_pct=pct):
+                print(f"✅ Posição {symbol_to_close} atualizada!")
+
+                # Atualiza results e latest_open para refletir a mudança no loop e no resumo final
+                if pct >= 1.0:
+                    results = [r for r in results if r['symbol'] != symbol_to_close]
+                    del latest_open[symbol_to_close]
+                else:
+                    # Atualiza em results
+                    for r in results:
+                        if r['symbol'] == symbol_to_close:
+                            r['size'] *= (1.0 - pct)
+                            r['margin'] *= (1.0 - pct)
+                    # Atualiza em latest_open
+                    latest_open[symbol_to_close]['size'] *= (1.0 - pct)
+                    latest_open[symbol_to_close]['margin_used'] *= (1.0 - pct)
+
+                # Recalcula e mostra o novo estado do portfólio
+                print("\n--- Estado atualizado do portfólio ---")
+                current_leverage, fator_reducao = calculate_and_display_summary(results, INITIAL_CAPITAL, MAX_PORTFOLIO_LEVERAGE)
+                print("-" * 50)
+        except Exception as e:
+            print(f"⚠️ Erro no processamento: {e}")
 
     # Bloco de Abertura de Novas Posições
     new_entries = [r for r in results if r['action'] == 'ENTER']
@@ -149,7 +168,7 @@ def main():
                     scanner.pos_engine.open_position(r['symbol'], r)
                 print("Rastreador atualizado!")
         else:
-            print("\n⚠️ ALAVANCAGEM MÁXIMA ATINGIDA: Novos sinais não podem ser abertos agora.")
+            print("\n⚠️ ALAVANCAGEM MÁXIMA ATINGIDA: Encerre posições existentes para abrir novos sinais.")
 
 if __name__ == "__main__":
     main()
