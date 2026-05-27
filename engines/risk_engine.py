@@ -1,4 +1,4 @@
-from config.config import INITIAL_CAPITAL, RISK_PER_TRADE, MAX_TRADE_NOTIONAL_PCT, MAX_LEVERAGE
+from config.config import INITIAL_CAPITAL, RISK_PER_TRADE, MAX_TRADE_NOTIONAL_PCT, MAX_LEVERAGE, MAX_PORTFOLIO_LEVERAGE
 
 class RiskEngine:
     """
@@ -26,10 +26,7 @@ class RiskEngine:
         final_notional = min(notional_by_risk, max_notional)
 
         # 5. ALAVANCAGEM ESTRUTURAL OTIMIZADA
-        # Sugerimos alavancagem tal que a MARGEM seja IGUAL ao valor em RISCO (Eficiência Máxima).
         recommended_leverage = final_notional / risk_amount
-
-        # Arredondamos para baixo e limitamos ao teto configurado (12x)
         final_leverage = min(max(1, int(recommended_leverage)), MAX_LEVERAGE)
 
         final_qty = final_notional / entry
@@ -39,21 +36,59 @@ class RiskEngine:
 
     @staticmethod
     def get_risk_parameters(setup, capital=INITIAL_CAPITAL):
-        """
-        Enhances the setup with professional position sizing.
-        """
-        if not setup:
-            return None
-
-        entry = setup['entry']
-        stop = setup['stop']
-
-        qty, margin, notional, leverage = RiskEngine.calculate_position_size(entry, stop, capital)
-
-        setup['position_size'] = qty
-        setup['margin_required'] = margin
-        setup['notional_value'] = notional
-        setup['leverage'] = leverage
-        setup['risk_amount'] = capital * RISK_PER_TRADE
-
+        if not setup: return None
+        qty, margin, notional, leverage = RiskEngine.calculate_position_size(setup['entry'], setup['stop'], capital)
+        setup.update({'position_size': qty, 'margin_required': margin, 'notional_value': notional, 'leverage': leverage})
         return setup
+
+    @staticmethod
+    def allocate_portfolio(results, initial_capital=INITIAL_CAPITAL):
+        """
+        Garante que o somatório de NOVOS sinais + HOLD não ultrapasse os limites.
+        Prioriza sinais por SCORE.
+        """
+        # 1. Identificar o que já está comprometido (HOLD)
+        holds = [r for r in results if r['action'] in ['HOLD', 'HOLD_CAUTION', 'REDUCE']]
+        committed_notional = sum(r['size'] * r['entry'] for r in holds)
+        committed_margin = sum(r.get('margin', 0) for r in holds)
+
+        available_leverage_budget = (initial_capital * MAX_PORTFOLIO_LEVERAGE) - committed_notional
+        available_margin_budget = initial_capital - committed_margin
+
+        # 2. Processar Novos Sinais por Prioridade (Score)
+        new_signals = [r for r in results if r['action'] == 'ENTER']
+        new_signals = sorted(new_signals, key=lambda x: x.get('score', 0), reverse=True)
+
+        allocated_signals = []
+        for signal in new_signals:
+            # Ideal Risk Parameters
+            qty, margin, notional, leverage = RiskEngine.calculate_position_size(signal['entry'], signal['stop'], initial_capital)
+
+            # Aplicar Trava de Orçamento de Alavancagem e Margem
+            # Se o sinal ideal for maior que o orçamento restante, escala para baixo
+            scaling_factor = 1.0
+            if notional > available_leverage_budget:
+                scaling_factor = min(scaling_factor, available_leverage_budget / notional)
+            if margin > available_margin_budget:
+                scaling_factor = min(scaling_factor, (available_margin_budget * 0.95) / margin) # 5% buffer
+
+            # Se o orçamento estiver zerado ou negativo
+            if available_leverage_budget <= 0 or available_margin_budget <= initial_capital * 0.05:
+                scaling_factor = 0
+
+            # Aplicar escala
+            signal['size'] = qty * scaling_factor
+            signal['margin'] = margin * scaling_factor
+            signal['leverage'] = leverage
+            signal['notional'] = notional * scaling_factor
+            signal['position_size'] = signal['size']
+            signal['margin_required'] = signal['margin']
+
+            # Atualizar orçamentos
+            available_leverage_budget -= (signal['size'] * signal['entry'])
+            available_margin_budget -= signal['margin']
+
+            allocated_signals.append(signal)
+
+        # Reconstruir lista de resultados final
+        return holds + allocated_signals + [r for r in results if r['action'] not in ['HOLD', 'HOLD_CAUTION', 'REDUCE', 'ENTER']]
