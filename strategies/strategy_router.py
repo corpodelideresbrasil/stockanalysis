@@ -12,10 +12,12 @@ class StrategyRouter:
         st_dir = last.get('supertrend_direction', 0)
         ema21 = last.get('ema21', 0)
         sma50 = last.get('sma50', 0)
+        adx = last.get('adx', 0)
 
-        if st_dir == 1 and ema21 > sma50:
+        # Baseline de força institucional: ADX > 20 para validar tendência
+        if st_dir == 1 and ema21 > sma50 and adx > 20:
             return "TREND_UP"
-        elif st_dir == -1 and ema21 < sma50:
+        elif st_dir == -1 and ema21 < sma50 and adx > 20:
             return "TREND_DOWN"
         else:
             return "RANGING"
@@ -83,20 +85,24 @@ class StrategyRouter:
             return None
 
         regime = StrategyRouter.get_market_regime(df_daily)
+        last_daily = df_daily.iloc[-1]
         last_4h = df_4h.iloc[-1]
-        close, rsi, atr = last_4h['close'], last_4h['rsi'], last_4h['atr']
 
-        if regime == "TREND_UP" and rsi < 60:
+        close, rsi, atr = last_4h['close'], last_4h['rsi'], last_4h['atr']
+        adx_daily = last_daily.get('adx', 0)
+
+        # Filtro de Robustez: ADX > 25 para novas entradas e Stop mais largo (3x ATR)
+        if regime == "TREND_UP" and rsi < 60 and adx_daily > 25:
             return {
                 "direction": "LONG", "entry": close,
-                "stop": close - (2 * atr), "target": close + (4 * atr),
+                "stop": close - (3 * atr), "target": close + (6 * atr),
                 "regime": regime
             }
 
-        elif regime == "TREND_DOWN" and rsi > 40:
+        elif regime == "TREND_DOWN" and rsi > 40 and adx_daily > 25:
             return {
                 "direction": "SHORT", "entry": close,
-                "stop": close + (2 * atr), "target": close - (4 * atr),
+                "stop": close + (3 * atr), "target": close - (6 * atr),
                 "regime": regime
             }
 
