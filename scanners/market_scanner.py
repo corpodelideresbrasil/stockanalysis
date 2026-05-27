@@ -34,9 +34,10 @@ class MarketScanner:
 
                     # PROTEÇÃO: NUNCA altera alavancagem de posição aberta (HOLD)
                     if not pos.get('margin_used') or pos.get('margin_used') == 0:
+                        # Recupera parâmetros ideais para auto-correção baseada no risco atual
+                        params = RiskEngine.get_risk_parameters({'entry': pos['entry'], 'stop': pos['stop']})
+                        lev = pos.get('leverage') or params['leverage']
                         notional = pos['size'] * pos['entry']
-                        # Se não tiver alavancagem salva, usa 8x (seu padrão real)
-                        lev = pos.get('leverage', 8)
                         pos.update({
                             "margin_used": notional / lev,
                             "notional": notional,
@@ -64,7 +65,8 @@ class MarketScanner:
                     results.append({
                         "symbol": symbol, "direction": pos["direction"], "action": action,
                         "entry": pos["entry"], "stop": pos["stop"], "size": pos["size"],
-                        "margin": pos.get("margin_used", 0), "leverage": pos.get("leverage", 8),
+                        "margin": pos.get("margin_used", 0), "leverage": pos.get("leverage", 1),
+                        "score": StrategyRouter.calculate_score(df_daily, df_4h),
                         "regime": StrategyRouter.get_market_regime(df_daily)
                     })
                     continue
@@ -76,6 +78,7 @@ class MarketScanner:
                         "symbol": symbol, "direction": setup["direction"], "action": "ENTER",
                         "entry": setup["entry"], "stop": setup["stop"], "size": setup["position_size"],
                         "margin": setup.get("margin_required", 0), "leverage": setup.get("leverage", 1),
+                        "score": StrategyRouter.calculate_score(df_daily, df_4h),
                         "regime": setup["regime"]
                     })
             except Exception as e:

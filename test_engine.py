@@ -8,10 +8,11 @@ class TestSwingEngine(unittest.TestCase):
 
     def test_risk_calculation(self):
         # Capital 200, Risk 2% = 4 USD risk
-        # Entry 100, Stop 90 = 10 USD distance
+        # Entry 100, Stop 90 = 10 USD distance (10%)
         # Size = 4 / 10 = 0.4
-        size = RiskEngine.calculate_position_size(100, 90, capital=200, risk_pct=0.02)
-        self.assertEqual(size, 0.4)
+        qty, margin, notional, lev = RiskEngine.calculate_position_size(100, 90, capital=200)
+        self.assertEqual(qty, 0.4)
+        self.assertEqual(notional, 40)
 
     def test_position_engine_duplicate(self):
         pe = PositionEngine()

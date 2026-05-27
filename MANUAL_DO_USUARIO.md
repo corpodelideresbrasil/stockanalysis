@@ -86,5 +86,15 @@ O sistema opera de forma **linear e proporcional**:
 - **Proporcionalidade:** Uma conta de 600 USD terá posições exatamente 3x maiores que uma conta de 200 USD, mantendo o mesmo risco percentual de 2%.
 - **Atualização Simples:** Quando seu capital crescer (por lucro ou aporte), basta atualizar o valor de `INITIAL_CAPITAL` no arquivo `config/config.py`. O motor recalculará instantaneamente todos os novos valores de **Qtd (USDT)** e **Margem** para o novo patamar, sem que você precise fazer cálculos manuais.
 
+## 🚀 7. Otimização de Portfólio (Custo de Oportunidade)
+
+### Conviction Score (0-100)
+Toda operação recebe um **Score de Qualidade**. Quanto maior o Score, mais "perfeito" é o setup técnico (ADX forte, alinhamento de médias macro e RSI em ponto de entrada ideal).
+
+### Substituição de Ativos
+Se você atingir o limite de alavancagem de **3x** e surgir uma nova moeda com Score superior às que você já tem em aberto:
+- O sistema sugerirá explicitamente: *"Encerre [Moeda A] para abrir [Moeda B]"*.
+- Isso permite que você mantenha sempre o "Time Titular" de ativos na sua conta, descartando moedas que perderam força técnica para dar lugar a moedas que estão iniciando tendências fortes.
+
 ---
 **Aviso Legal:** Este sistema é uma ferramenta de apoio à decisão. O mercado de futuros perpétuos envolve alto risco. Sempre valide os sinais antes de executar ordens reais.
