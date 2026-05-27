@@ -20,7 +20,10 @@ def display_table(results):
         prio = {"ENTER": 0, "EXIT_PROFIT": 1, "CLOSED_STOP": 1, "HOLD": 2}
         return prio.get(r['action'], 99)
 
-    sorted_results = sorted(results, key=action_priority)
+    # Filtrar sinais de ENTER com tamanho zero (sem margem)
+    filtered_results = [r for r in results if not (r['action'] == 'ENTER' and r['size'] <= 0)]
+
+    sorted_results = sorted(filtered_results, key=action_priority)
     for r in sorted_results:
         action_str = r['action']
         if "CLOSED" in action_str or "EXIT" in action_str: action_str = f"!! {action_str}"
