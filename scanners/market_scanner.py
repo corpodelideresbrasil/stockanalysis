@@ -67,7 +67,8 @@ class MarketScanner:
                         "entry": pos["entry"], "stop": pos["stop"], "size": pos["size"],
                         "margin": pos.get("margin_used", 0), "leverage": pos.get("leverage", 1),
                         "score": StrategyRouter.calculate_score(df_daily, df_4h),
-                        "regime": StrategyRouter.get_market_regime(df_daily)
+                        "regime": StrategyRouter.get_market_regime(df_daily),
+                        "last_price": last_price
                     })
                     continue
 
