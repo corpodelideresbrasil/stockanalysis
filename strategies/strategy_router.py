@@ -12,12 +12,14 @@ class StrategyRouter:
         st_dir = last.get('supertrend_direction', 0)
         ema21 = last.get('ema21', 0)
         sma50 = last.get('sma50', 0)
+        sma200 = last.get('sma200', 0)
+        close = last.get('close', 0)
         adx = last.get('adx', 0)
 
-        # Baseline de força institucional: ADX > 20 para validar tendência
-        if st_dir == 1 and ema21 > sma50 and adx > 20:
+        # Baseline de força institucional: ADX > 20 e Alinhamento com SMA200 (Macro)
+        if st_dir == 1 and ema21 > sma50 and close > sma200 and adx > 20:
             return "TREND_UP"
-        elif st_dir == -1 and ema21 < sma50 and adx > 20:
+        elif st_dir == -1 and ema21 < sma50 and close < sma200 and adx > 20:
             return "TREND_DOWN"
         else:
             return "RANGING"
@@ -81,28 +83,40 @@ class StrategyRouter:
 
     @staticmethod
     def route(df_daily, df_4h):
-        if df_daily is None or df_4h is None or len(df_daily) < 1 or len(df_4h) < 1:
+        if df_daily is None or df_4h is None or len(df_daily) < 2 or len(df_4h) < 1:
             return None
 
         regime = StrategyRouter.get_market_regime(df_daily)
         last_daily = df_daily.iloc[-1]
+        prev_daily = df_daily.iloc[-2]
         last_4h = df_4h.iloc[-1]
 
         close, rsi, atr = last_4h['close'], last_4h['rsi'], last_4h['atr']
-        adx_daily = last_daily.get('adx', 0)
+        vol, vol_mean = last_4h['volume'], last_4h['volume_mean']
 
-        # Filtro de Robustez: ADX > 25 para novas entradas e Stop mais largo (3x ATR)
-        if regime == "TREND_UP" and rsi < 60 and adx_daily > 25:
+        adx_daily = last_daily.get('adx', 0)
+        adx_prev = prev_daily.get('adx', 0)
+
+        # FILTROS DE ROBUSTEZ (MUNDO REAL):
+        # 1. ADX > 25 (Tendência forte)
+        # 2. ADX_DAILY > ADX_PREV (Inércia crescente)
+        # 3. VOLUME > VOLUME_MEAN (Energia/Confirmação)
+        # 4. RSI mais apertado (Evitar esticamento)
+
+        inertia_rising = adx_daily > adx_prev
+        energy_confirmed = vol > vol_mean
+
+        if regime == "TREND_UP" and 40 < rsi < 55 and adx_daily > 25 and inertia_rising and energy_confirmed:
             return {
                 "direction": "LONG", "entry": close,
-                "stop": close - (3 * atr), "target": close + (6 * atr),
+                "stop": close - (3.5 * atr), "target": close + (7 * atr),
                 "regime": regime
             }
 
-        elif regime == "TREND_DOWN" and rsi > 40 and adx_daily > 25:
+        elif regime == "TREND_DOWN" and 45 < rsi < 60 and adx_daily > 25 and inertia_rising and energy_confirmed:
             return {
                 "direction": "SHORT", "entry": close,
-                "stop": close + (3 * atr), "target": close - (6 * atr),
+                "stop": close + (3.5 * atr), "target": close - (7 * atr),
                 "regime": regime
             }
 
