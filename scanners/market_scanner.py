@@ -14,6 +14,7 @@ class MarketScanner:
 
     def run(self):
         results = []
+        all_regimes = {} # Ticker -> Regime
         open_positions = self.pos_engine.get_open_positions()
 
         for symbol in SYMBOLS:
@@ -28,6 +29,10 @@ class MarketScanner:
 
                 df_daily = Indicators.apply_all(df_daily)
                 df_4h = Indicators.apply_all(df_4h)
+
+                # Salva o regime de TODOS os ativos analisados para o Health Check
+                regime = StrategyRouter.get_market_regime(df_daily)
+                all_regimes[symbol] = regime
 
                 if symbol in open_positions:
                     pos = open_positions[symbol]
@@ -101,4 +106,4 @@ class MarketScanner:
             except Exception as e:
                 print(f"Erro em {symbol}: {e}")
 
-        return results, self.pos_engine.get_open_positions()
+        return results, self.pos_engine.get_open_positions(), all_regimes

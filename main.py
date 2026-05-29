@@ -107,20 +107,22 @@ def main():
     print("=" * 135)
 
     scanner = MarketScanner()
-    results, latest_open = scanner.run()
+    results, latest_open, all_regimes = scanner.run()
 
-    # --- VISÃO GERAL DO MERCADO ---
-    regimes = [r.get('regime', 'UNKNOWN') for r in results if r['action'] != 'HOLD']
-    if regimes:
-        up = regimes.count("TREND_UP")
-        down = regimes.count("TREND_DOWN")
-        rng = regimes.count("RANGING")
-        total = len(regimes)
-        print(f"🌍 HEALTH CHECK: 🟢 UP: {up} | 🔴 DOWN: {down} | ⚪ RANGING: {rng} (Total: {total} ativos)")
+    # --- VISÃO GERAL DO MERCADO (Baseado em todos os ativos do symbols.py) ---
+    if all_regimes:
+        regime_list = list(all_regimes.values())
+        up = regime_list.count("TREND_UP")
+        down = regime_list.count("TREND_DOWN")
+        rng = regime_list.count("RANGING")
+        total = len(regime_list)
+        print(f"🌍 MARKET HEALTH: 🟢 UP: {up} | 🔴 DOWN: {down} | ⚪ RANGING: {rng} (Base: {total} ativos)")
 
     # --- FASE 1: RECOMENDAÇÕES AUTOMÁTICAS (TP/SL/EXIT) ---
     suggestions = [r for r in results if r['action'].startswith("SUGGEST_")]
-    if suggestions:
+    if not suggestions:
+        print("\n🛡️ MONITORAMENTO: Nenhuma saída técnica (Stop/Alvo) atingida até o momento.")
+    else:
         print("\n🎯 RECOMENDAÇÕES DE SAÍDA IDENTIFICADAS")
         display_table(suggestions)
         ans = input("Deseja executar estas saídas recomendadas agora? (s/n): ").lower()
@@ -144,7 +146,7 @@ def main():
                         print(f"✅ Saída total executada em {symbol}.")
 
             # Recarrega estado após execuções automáticas
-            results, latest_open = scanner.run()
+            results, latest_open, all_regimes = scanner.run()
 
     # --- FASE 2: GESTÃO MANUAL DO PORTFÓLIO ---
     if latest_open:
