@@ -40,11 +40,16 @@ class PositionEngine:
             "direction": setup.get("direction"),
             "entry": setup.get("entry"),
             "stop": setup.get("stop"),
-            "target": setup.get("target"),
+            "tp1": setup.get("tp1"),
+            "tp2": setup.get("tp2"),
+            "target": setup.get("target"), # TP Final / Trailing
             "size": setup.get("position_size") or setup.get("size", 0),
+            "initial_size": setup.get("position_size") or setup.get("size", 0),
             "margin_used": setup.get("margin_required") or setup.get("margin", 0),
             "notional": setup.get("notional_value") or setup.get("notional", 0),
             "leverage": setup.get("leverage") or 1,
+            "tp1_hit": False,
+            "tp2_hit": False,
             "opened_at": str(setup.get("timestamp", "manual"))
         }
         self._save_positions()

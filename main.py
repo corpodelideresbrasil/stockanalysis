@@ -26,6 +26,11 @@ def display_table(results):
     sorted_results = sorted(filtered_results, key=action_priority)
     for r in sorted_results:
         action_str = r['action']
+
+        # Indica estágio das parciais
+        if r.get('tp2_hit'): action_str = f"HOLD (TP2)"
+        elif r.get('tp1_hit'): action_str = f"HOLD (TP1)"
+
         if "CLOSED" in action_str or "EXIT" in action_str: action_str = f"!! {action_str}"
         elif "ENTER" in action_str: action_str = f">> {action_str}"
 

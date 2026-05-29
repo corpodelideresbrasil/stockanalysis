@@ -37,8 +37,30 @@ class RiskEngine:
     @staticmethod
     def get_risk_parameters(setup, capital=INITIAL_CAPITAL):
         if not setup: return None
-        qty, margin, notional, leverage = RiskEngine.calculate_position_size(setup['entry'], setup['stop'], capital)
-        setup.update({'position_size': qty, 'margin_required': margin, 'notional_value': notional, 'leverage': leverage})
+        entry = setup['entry']
+        stop = setup['stop']
+
+        qty, margin, notional, leverage = RiskEngine.calculate_position_size(entry, stop, capital)
+
+        # Cálculo de Alvos Parciais (Multiplicadores de Risco R)
+        risk_dist = abs(entry - stop)
+        direction = setup['direction']
+
+        if direction == 'LONG':
+            tp1 = entry + (risk_dist * 1.5)
+            tp2 = entry + (risk_dist * 3.0)
+        else:
+            tp1 = entry - (risk_dist * 1.5)
+            tp2 = entry - (risk_dist * 3.0)
+
+        setup.update({
+            'position_size': qty,
+            'margin_required': margin,
+            'notional_value': notional,
+            'leverage': leverage,
+            'tp1': tp1,
+            'tp2': tp2
+        })
         return setup
 
     @staticmethod
