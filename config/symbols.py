@@ -1,4 +1,4 @@
-# List of symbols to scan
+# List of symbols to scan - High Liquidity & Momentum focus
 SYMBOLS = [
     'BTC/USDT',
     'ETH/USDT',
@@ -10,7 +10,19 @@ SYMBOLS = [
     'LINK/USDT',
     'AVAX/USDT',
     'TRX/USDT',
-    'MATIC/USDT',
     'LTC/USDT',
-    'BCH/USDT'
+    'BCH/USDT',
+    'DOGE/USDT',
+    'NEAR/USDT',
+    'ONDO/USDT',
+    'SUSHI/USDT',
+    'MATIC/USDT',
+    'ARB/USDT',
+    'OP/USDT',
+    'TIA/USDT',
+    'RNDR/USDT',
+    'FET/USDT',
+    'STX/USDT',
+    'KAS/USDT',
+    'INJ/USDT'
 ]

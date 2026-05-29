@@ -109,6 +109,15 @@ def main():
     scanner = MarketScanner()
     results, latest_open = scanner.run()
 
+    # --- VISÃO GERAL DO MERCADO ---
+    regimes = [r.get('regime', 'UNKNOWN') for r in results if r['action'] != 'HOLD']
+    if regimes:
+        up = regimes.count("TREND_UP")
+        down = regimes.count("TREND_DOWN")
+        rng = regimes.count("RANGING")
+        total = len(regimes)
+        print(f"🌍 HEALTH CHECK: 🟢 UP: {up} | 🔴 DOWN: {down} | ⚪ RANGING: {rng} (Total: {total} ativos)")
+
     # --- FASE 1: RECOMENDAÇÕES AUTOMÁTICAS (TP/SL/EXIT) ---
     suggestions = [r for r in results if r['action'].startswith("SUGGEST_")]
     if suggestions:
@@ -180,14 +189,18 @@ def main():
     display_table(results)
     display_summary(results)
 
-    new_entries = [r for r in results if r['action'] == 'ENTER' and r['size'] > 0]
-    if new_entries:
-        ans = input(f"\nDeseja iniciar rastreio para {len(new_entries)} novos sinais ajustados? (s/n): ")
+    new_entries = [r for r in results if r['action'] == 'ENTER']
+    executable_entries = [r for r in new_entries if r['size'] > 0]
+
+    if executable_entries:
+        ans = input(f"\nDeseja iniciar rastreio para {len(executable_entries)} novos sinais ajustados? (s/n): ")
         if ans.lower() == 's':
-            for r in new_entries: scanner.pos_engine.open_position(r['symbol'], r)
+            for r in executable_entries: scanner.pos_engine.open_position(r['symbol'], r)
             print("✅ Rastreador atualizado com sucesso!")
+    elif new_entries and not executable_entries:
+        print("\n⚠️ ALAVANCAGEM MÁXIMA ATINGIDA: Encerre posições para liberar margem para novos sinais.")
     else:
-        print("\n⚠️ Sem margem ou sinais viáveis para novas entradas no momento.")
+        print("\n🔎 MERCADO ANALISADO: Nenhum novo sinal de alta convicção encontrado no momento.")
 
     print("\n" + "=" * 135)
 
