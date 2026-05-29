@@ -53,41 +53,28 @@ class MarketScanner:
                     action = StrategyRouter.evaluate_position(pos, df_daily, df_4h)
                     last_price = df_4h.iloc[-1]['close']
 
-                    # --- Lógica de Alvos Parciais (TP) e Break-even ---
-                    if action == "HOLD":
-                        direction = pos['direction']
-                        tp1, tp2 = pos.get('tp1'), pos.get('tp2')
+                    # --- Identificação de Recomendações Automáticas (TP/SL/Exit) ---
+                    direction = pos['direction']
+                    tp1, tp2 = pos.get('tp1'), pos.get('tp2')
 
-                        # TP1: Realiza 50% e move para Break-even
-                        if not pos.get('tp1_hit') and tp1:
-                            hit = (direction == 'LONG' and last_price >= tp1) or (direction == 'SHORT' and last_price <= tp1)
-                            if hit:
-                                print(f"🎯 TP1 Atingido em {symbol}! Realizando 50% e ajustando Break-even.")
-                                self.pos_engine.close_position(symbol, "TP1_1.5R", last_price, partial_pct=0.5)
-                                self.pos_engine.update_position(symbol, {"tp1_hit": True, "stop": pos['entry']})
-                                pos['stop'] = pos['entry'] # Update local for the stop check below
+                    # Stop Loss Hit?
+                    sl_hit = (direction == 'LONG' and last_price <= pos['stop']) or (direction == 'SHORT' and last_price >= pos['stop'])
+                    if sl_hit:
+                        action = "SUGGEST_SL"
 
-                        # TP2: Realiza mais 25% do inicial
-                        if pos.get('tp1_hit') and not pos.get('tp2_hit') and tp2:
-                            hit = (direction == 'LONG' and last_price >= tp2) or (direction == 'SHORT' and last_price <= tp2)
-                            if hit:
-                                print(f"🎯 TP2 Atingido em {symbol}! Realizando mais 25%.")
-                                # initial_size * 0.25 / current_size
-                                current_size = self.pos_engine.positions[symbol]['size']
-                                initial_size = pos.get('initial_size', current_size * 2)
-                                pct_to_close = (initial_size * 0.25) / current_size
-                                self.pos_engine.close_position(symbol, "TP2_3.0R", last_price, partial_pct=min(1.0, pct_to_close))
-                                self.pos_engine.update_position(symbol, {"tp2_hit": True})
+                    # TP1 Hit?
+                    elif not pos.get('tp1_hit') and tp1:
+                        if (direction == 'LONG' and last_price >= tp1) or (direction == 'SHORT' and last_price <= tp1):
+                            action = "SUGGEST_TP1"
 
-                    # --- Verificação de Stop Loss ---
-                    if pos['direction'] == 'LONG':
-                        if last_price <= pos['stop']:
-                            self.pos_engine.close_position(symbol, "STOP_LOSS", last_price)
-                            action = "CLOSED_STOP"
-                    else: # SHORT
-                        if last_price >= pos['stop']:
-                            self.pos_engine.close_position(symbol, "STOP_LOSS", last_price)
-                            action = "CLOSED_STOP"
+                    # TP2 Hit?
+                    elif pos.get('tp1_hit') and not pos.get('tp2_hit') and tp2:
+                        if (direction == 'LONG' and last_price >= tp2) or (direction == 'SHORT' and last_price <= tp2):
+                            action = "SUGGEST_TP2"
+
+                    # Tactical Exit (RSI)?
+                    elif action in ["EXIT_PROFIT", "EXIT_LOSS"]:
+                        action = "SUGGEST_EXIT"
 
                     results.append({
                         "symbol": symbol, "direction": pos["direction"], "action": action,

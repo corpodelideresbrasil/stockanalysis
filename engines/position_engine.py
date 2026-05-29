@@ -50,6 +50,7 @@ class PositionEngine:
             "leverage": setup.get("leverage") or 1,
             "tp1_hit": False,
             "tp2_hit": False,
+            "realized_pnl": 0.0,
             "opened_at": str(setup.get("timestamp", "manual"))
         }
         self._save_positions()
@@ -65,16 +66,29 @@ class PositionEngine:
 
         pos = self.positions[symbol]
 
+        # Cálculo de PnL Realizado nesta parcela
+        closing_size = pos['size'] * partial_pct
+        if pos['direction'] == 'LONG':
+            pnl_share = (price - pos['entry']) * closing_size
+        else:
+            pnl_share = (pos['entry'] - price) * closing_size
+
+        pos['realized_pnl'] = pos.get('realized_pnl', 0.0) + pnl_share
+
         if partial_pct >= 1.0:
             pos['status'] = 'CLOSED'
             pos['exit_reason'] = reason
             pos['exit_price'] = price
+            pos['size'] = 0
+            pos['margin_used'] = 0
+            pos['notional'] = 0
         else:
             # Partial reduction
             reduction_factor = 1.0 - partial_pct
             pos['size'] *= reduction_factor
             pos['margin_used'] *= reduction_factor
-            pos['notional'] *= reduction_factor
+            if 'notional' in pos:
+                pos['notional'] *= reduction_factor
             pos['partial_exit_reason'] = f"Reduced {partial_pct*100}% - {reason}"
 
         self._save_positions()

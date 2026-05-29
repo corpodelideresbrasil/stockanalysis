@@ -27,12 +27,26 @@ def display_table(results):
     for r in sorted_results:
         action_str = r['action']
 
-        # Indica estágio das parciais
-        if r.get('tp2_hit'): action_str = f"HOLD (TP2)"
-        elif r.get('tp1_hit'): action_str = f"HOLD (TP1)"
+        # Tradução amigável para a UI
+        mapping = {
+            "HOLD": "HOLD",
+            "SUGGEST_TP1": ">> ALVO 1",
+            "SUGGEST_TP2": ">> ALVO 2",
+            "SUGGEST_SL": "!! STOP",
+            "SUGGEST_EXIT": "!! SAIR (RSI)",
+            "ENTER": "NOVA ENTRADA"
+        }
+        action_str = mapping.get(action_str, action_str)
 
-        if "CLOSED" in action_str or "EXIT" in action_str: action_str = f"!! {action_str}"
-        elif "ENTER" in action_str: action_str = f">> {action_str}"
+        # Indica estágio das parciais para posições em HOLD
+        if r['action'] == "HOLD":
+            if r.get('tp2_hit'): action_str = f"HOLD (TP2)"
+            elif r.get('tp1_hit'): action_str = f"HOLD (TP1)"
+
+        if "CLOSED" in action_str or "EXIT" in action_str or "STOP" in action_str:
+            action_str = f"!! {action_str}"
+        elif "ENTER" in action_str or "ALVO" in action_str:
+            action_str = f">> {action_str}"
 
         qtd_usdt = r['size'] * r['entry']
 
@@ -61,17 +75,30 @@ def display_summary(results):
     current_leverage = total_notional / INITIAL_CAPITAL if INITIAL_CAPITAL > 0 else 0
 
     # Total PnL (Agregado de todas as ações no set atual)
-    total_pnl = 0
+    unrealized_pnl = 0
+    realized_pnl = 0
+
+    # Precisamos acessar o motor de posições para ver o realizado acumulado
+    from engines.position_engine import PositionEngine
+    pe = PositionEngine()
+
     for r in results:
         if r['action'] == 'ENTER': continue
+
+        # 1. Realizado (Pego do arquivo de estado)
+        pos_data = pe.positions.get(r['symbol'], {})
+        realized_pnl += pos_data.get('realized_pnl', 0.0)
+
+        # 2. Aberto (Cálculo atual)
         ref_price = r.get('last_price', r['entry'])
         if r['direction'] == 'LONG':
-            total_pnl += (ref_price - r['entry']) * r['size']
+            unrealized_pnl += (ref_price - r['entry']) * r['size']
         else:
-            total_pnl += (r['entry'] - ref_price) * r['size']
+            unrealized_pnl += (r['entry'] - ref_price) * r['size']
 
+    total_pnl = unrealized_pnl + realized_pnl
     print(f"SALDO INICIAL: {INITIAL_CAPITAL:.2f} USDT | MARGEM TOTAL: {total_margin:.2f} USDT")
-    print(f"ALAVANCAGEM ATUAL: {current_leverage:.2f}x (MAX: {MAX_PORTFOLIO_LEVERAGE}x) | PnL TOTAL: {total_pnl:.2f} USDT")
+    print(f"ALAVANCAGEM: {current_leverage:.2f}x | PnL ABERTO: {unrealized_pnl:.2f} | PnL REALIZADO: {realized_pnl:.2f} | TOTAL: {total_pnl:.2f} USDT")
     return current_leverage
 
 def main():
@@ -82,7 +109,35 @@ def main():
     scanner = MarketScanner()
     results, latest_open = scanner.run()
 
-    # --- FASE 1: GESTÃO DO QUE JÁ ESTÁ ABERTO ---
+    # --- FASE 1: RECOMENDAÇÕES AUTOMÁTICAS (TP/SL/EXIT) ---
+    suggestions = [r for r in results if r['action'].startswith("SUGGEST_")]
+    if suggestions:
+        print("\n🎯 RECOMENDAÇÕES DE SAÍDA IDENTIFICADAS")
+        display_table(suggestions)
+        ans = input("Deseja executar estas saídas recomendadas agora? (s/n): ").lower()
+        if ans == 's':
+            for r in suggestions:
+                symbol = r['symbol']
+                price = r['last_price']
+                if r['action'] == "SUGGEST_TP1":
+                    if scanner.pos_engine.close_position(symbol, "TP1_1.5R", price, partial_pct=0.5):
+                        scanner.pos_engine.update_position(symbol, {"tp1_hit": True, "stop": r['entry']})
+                        print(f"✅ TP1 Executado em {symbol}. Stop movido para Break-even.")
+                elif r['action'] == "SUGGEST_TP2":
+                    current_size = scanner.pos_engine.positions[symbol]['size']
+                    initial_size = scanner.pos_engine.positions[symbol].get('initial_size', current_size * 2)
+                    pct_to_close = (initial_size * 0.25) / current_size
+                    if scanner.pos_engine.close_position(symbol, "TP2_3.0R", price, partial_pct=min(1.0, pct_to_close)):
+                        scanner.pos_engine.update_position(symbol, {"tp2_hit": True})
+                        print(f"✅ TP2 Executado em {symbol}.")
+                elif r['action'] in ["SUGGEST_SL", "SUGGEST_EXIT"]:
+                    if scanner.pos_engine.close_position(symbol, r['action'].replace("SUGGEST_",""), price, partial_pct=1.0):
+                        print(f"✅ Saída total executada em {symbol}.")
+
+            # Recarrega estado após execuções automáticas
+            results, latest_open = scanner.run()
+
+    # --- FASE 2: GESTÃO MANUAL DO PORTFÓLIO ---
     if latest_open:
         while True:
             print("\n📊 ESTADO ATUAL DO PORTFÓLIO (POSIÇÕES ABERTAS)")
