@@ -74,31 +74,31 @@ def display_summary(results):
     total_notional = sum(r['size'] * r['entry'] for r in active)
     current_leverage = total_notional / INITIAL_CAPITAL if INITIAL_CAPITAL > 0 else 0
 
-    # Total PnL (Agregado de todas as ações no set atual)
-    unrealized_pnl = 0
-    realized_pnl = 0
-
-    # Precisamos acessar o motor de posições para ver o realizado acumulado
+    # Precisamos acessar o motor de posições para ver o realizado acumulado HISTÓRICO
     from engines.position_engine import PositionEngine
     pe = PositionEngine()
 
+    # 1. Realizado (HISTÓRICO TOTAL)
+    global_realized = pe.positions.get("__GLOBAL_STATS__", {}).get("total_realized_pnl", 0.0)
+
+    # 2. Aberto (Cálculo atual das posições ativas)
+    unrealized_pnl = 0
     for r in results:
         if r['action'] == 'ENTER': continue
-
-        # 1. Realizado (Pego do arquivo de estado)
-        pos_data = pe.positions.get(r['symbol'], {})
-        realized_pnl += pos_data.get('realized_pnl', 0.0)
-
-        # 2. Aberto (Cálculo atual)
         ref_price = r.get('last_price', r['entry'])
         if r['direction'] == 'LONG':
             unrealized_pnl += (ref_price - r['entry']) * r['size']
         else:
             unrealized_pnl += (r['entry'] - ref_price) * r['size']
 
-    total_pnl = unrealized_pnl + realized_pnl
+    total_pnl = unrealized_pnl + global_realized
     print(f"SALDO INICIAL: {INITIAL_CAPITAL:.2f} USDT | MARGEM TOTAL: {total_margin:.2f} USDT")
-    print(f"ALAVANCAGEM: {current_leverage:.2f}x | PnL ABERTO: {unrealized_pnl:.2f} | PnL REALIZADO: {realized_pnl:.2f} | TOTAL: {total_pnl:.2f} USDT")
+    print(f"ALAVANCAGEM: {current_leverage:.2f}x | PnL ABERTO: {unrealized_pnl:.2f} | PnL REALIZADO: {global_realized:.2f} | TOTAL: {total_pnl:.2f} USDT")
+
+    if current_leverage > 1.0:
+        sensitivity = current_leverage
+        print(f"💡 SENSIBILIDADE: 1% de oscilação média do mercado = {sensitivity:.1f}% de oscilação no seu Capital Total.")
+
     return current_leverage
 
 def main():

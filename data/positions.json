@@ -1,0 +1,16 @@
+{
+    "__GLOBAL_STATS__": {
+        "total_realized_pnl": -50.0
+    },
+    "TEST": {
+        "status": "CLOSED",
+        "direction": "LONG",
+        "entry": 100,
+        "size": 0,
+        "margin_used": 0,
+        "realized_pnl": -100.0,
+        "exit_reason": "SL",
+        "exit_price": 90,
+        "notional": 0
+    }
+}

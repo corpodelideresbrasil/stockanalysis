@@ -14,10 +14,13 @@ class PositionEngine:
         if os.path.exists(self.STATE_FILE):
             try:
                 with open(self.STATE_FILE, 'r') as f:
-                    return json.load(f)
+                    data = json.load(f)
+                    if "__GLOBAL_STATS__" not in data:
+                        data["__GLOBAL_STATS__"] = {"total_realized_pnl": 0.0}
+                    return data
             except:
-                return {}
-        return {}
+                return {"__GLOBAL_STATS__": {"total_realized_pnl": 0.0}}
+        return {"__GLOBAL_STATS__": {"total_realized_pnl": 0.0}}
 
     def _save_positions(self):
         os.makedirs("data", exist_ok=True)
@@ -61,7 +64,7 @@ class PositionEngine:
         Closes a position fully (default) or partially.
         partial_pct: float between 0 and 1 (e.g. 0.5 for 50% closure)
         """
-        if symbol not in self.positions or self.positions[symbol]['status'] != 'OPEN':
+        if symbol not in self.positions or self.positions[symbol].get('status') != 'OPEN':
             return False
 
         pos = self.positions[symbol]
@@ -73,7 +76,9 @@ class PositionEngine:
         else:
             pnl_share = (pos['entry'] - price) * closing_size
 
+        # Atualiza PnL da Posição e o PnL GLOBAL
         pos['realized_pnl'] = pos.get('realized_pnl', 0.0) + pnl_share
+        self.positions["__GLOBAL_STATS__"]["total_realized_pnl"] += pnl_share
 
         if partial_pct >= 1.0:
             pos['status'] = 'CLOSED'
@@ -102,4 +107,4 @@ class PositionEngine:
         return False
 
     def get_open_positions(self):
-        return {s: p for s, p in self.positions.items() if p['status'] == 'OPEN'}
+        return {s: p for s, p in self.positions.items() if isinstance(p, dict) and p.get('status') == 'OPEN'}

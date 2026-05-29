@@ -22,6 +22,15 @@ python main.py
 
 ---
 
+## 📊 1.5 Entendendo o PnL (Lucro e Perda)
+
+O sistema agora rastreia o desempenho de duas formas:
+1.  **PnL Aberto (Unrealized):** É o lucro ou perda flutuante das suas posições que ainda estão ativas. Ele muda a cada variação de preço.
+2.  **PnL Realizado (Realized):** É o lucro ou perda que já foi "travado" através de uma Saída Parcial (TP1/TP2) ou pelo encerramento total da posição. Este valor é **persistente** e fica guardado no histórico global do sistema.
+3.  **Sensibilidade de Alavancagem:** Se sua alavancagem de portfólio está em **3.0x**, significa que se o mercado cair 1%, seu capital total cairá 3%. Fique atento a esta métrica no sumário.
+
+---
+
 ## 🧠 2. Estratégias Integradas
 
 O sistema utiliza uma abordagem **Multi-Timeframe Institucional**:
