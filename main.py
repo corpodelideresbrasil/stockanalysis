@@ -93,8 +93,21 @@ def display_summary(results):
             unrealized_pnl += (r['entry'] - ref_price) * r['size']
 
     total_pnl = unrealized_pnl + global_realized
-    print(f"SALDO INICIAL: {INITIAL_CAPITAL:.2f} USDT | MARGEM TOTAL: {total_margin:.2f} USDT")
-    print(f"ALAVANCAGEM: {current_leverage:.2f}x | PnL ABERTO: {unrealized_pnl:.2f} | PnL REALIZADO (Líquido): {global_realized:.2f} | TOTAL: {total_pnl:.2f} USDT")
+    estimated_balance = INITIAL_CAPITAL + unrealized_pnl # PnL Realizado já deve estar refletido no seu saldo da Binance
+
+    # Risco Total (Portfolio Heat)
+    total_risk_usdt = 0
+    for r in results:
+        if r['action'] != 'ENTER':
+            risk = abs(r['entry'] - r['stop']) * r['size']
+            total_risk_usdt += risk
+
+    heat_pct = (total_risk_usdt / INITIAL_CAPITAL) * 100 if INITIAL_CAPITAL > 0 else 0
+
+    print(f"SALDO BASE: {INITIAL_CAPITAL:.2f} USDT | MARGEM EM USO: {total_margin:.2f} USDT")
+    print(f"ALAVANCAGEM: {current_leverage:.2f}x | PnL ABERTO: {unrealized_pnl:.2f} | PnL REALIZADO (Hist): {global_realized:.2f} | TOTAL: {total_pnl:.2f} USDT")
+    print(f"ESTIMATIVA DE SALDO (Equity): {INITIAL_CAPITAL + total_pnl:.2f} USDT")
+    print(f"RISCO TOTAL (Heat): {total_risk_usdt:.2f} USDT ({heat_pct:.1f}% do capital)")
 
     if current_leverage > 1.0:
         sensitivity = current_leverage
