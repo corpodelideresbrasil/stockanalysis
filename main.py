@@ -3,14 +3,15 @@ from engines.risk_engine import RiskEngine
 from config.config import INITIAL_CAPITAL, MAX_PORTFOLIO_LEVERAGE
 
 def display_table(results):
-    w_tk, w_dir, w_act, w_ent, w_stp, w_lev, w_val, w_mar, w_sco, w_pnl = 12, 6, 12, 12, 12, 8, 15, 12, 8, 12
+    # Dimensões: Ticker, Dir, Ação, Entrada, Stop, Alav, Montante(USDT), Margem, Score, PnL
+    w_tk, w_dir, w_act, w_ent, w_stp, w_lev, w_val, w_mar, w_sco, w_pnl = 12, 6, 15, 12, 12, 6, 15, 10, 6, 10
     header = (
         f"{'Ticker':<{w_tk}} {'Dir':<{w_dir}} {'Ação':<{w_act}} "
-        f"{'Entrada':<{w_ent}} {'Stop':<{w_stp}} {'Alav.':<{w_lev}} "
-        f"{'Qtd(USDT)':<{w_val}} {'Margem':<{w_mar}} {'Score':<{w_sco}} {'PnL(USDT)':<{w_pnl}}"
+        f"{'Entrada':<{w_ent}} {'Stop':<{w_stp}} {'Alav':<{w_lev}} "
+        f"{'Montante(USDT)':<{w_val}} {'Margem':<{w_mar}} {'Score':<{w_sco}} {'PnL(USDT)':<{w_pnl}}"
     )
     print("\n" + header)
-    print("-" * (w_tk + w_dir + w_act + w_ent + w_stp + w_lev + w_val + w_mar + w_sco + w_pnl + 9))
+    print("-" * (w_tk + w_dir + w_act + w_ent + w_stp + w_lev + w_val + w_mar + w_sco + w_pnl + 10))
 
     if not results:
         print(f"{'Sem sinais ou posições ativas.':^135}")
