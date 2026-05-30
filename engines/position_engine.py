@@ -1,5 +1,6 @@
 import json
 import os
+from config.config import COMMISSION_PCT
 
 class PositionEngine:
     """
@@ -38,6 +39,9 @@ class PositionEngine:
             return False
 
         # Unified mapping to ensure data is saved regardless of source key names
+        notional = setup.get("notional_value") or setup.get("notional", 0)
+        open_fee = notional * COMMISSION_PCT
+
         self.positions[symbol] = {
             "status": "OPEN",
             "direction": setup.get("direction"),
@@ -45,17 +49,18 @@ class PositionEngine:
             "stop": setup.get("stop"),
             "tp1": setup.get("tp1"),
             "tp2": setup.get("tp2"),
-            "target": setup.get("target"), # TP Final / Trailing
+            "target": setup.get("target"),
             "size": setup.get("position_size") or setup.get("size", 0),
             "initial_size": setup.get("position_size") or setup.get("size", 0),
             "margin_used": setup.get("margin_required") or setup.get("margin", 0),
-            "notional": setup.get("notional_value") or setup.get("notional", 0),
+            "notional": notional,
             "leverage": setup.get("leverage") or 1,
             "tp1_hit": False,
             "tp2_hit": False,
-            "realized_pnl": 0.0,
+            "realized_pnl": -open_fee, # Taxa de abertura já descontada
             "opened_at": str(setup.get("timestamp", "manual"))
         }
+        self.positions["__GLOBAL_STATS__"]["total_realized_pnl"] -= open_fee
         self._save_positions()
         return True
 
@@ -71,14 +76,20 @@ class PositionEngine:
 
         # Cálculo de PnL Realizado nesta parcela
         closing_size = pos['size'] * partial_pct
+        notional_share = closing_size * price
+        close_fee = notional_share * COMMISSION_PCT
+
         if pos['direction'] == 'LONG':
             pnl_share = (price - pos['entry']) * closing_size
         else:
             pnl_share = (pos['entry'] - price) * closing_size
 
+        # Desconta a taxa de fechamento
+        net_pnl_share = pnl_share - close_fee
+
         # Atualiza PnL da Posição e o PnL GLOBAL
-        pos['realized_pnl'] = pos.get('realized_pnl', 0.0) + pnl_share
-        self.positions["__GLOBAL_STATS__"]["total_realized_pnl"] += pnl_share
+        pos['realized_pnl'] = pos.get('realized_pnl', 0.0) + net_pnl_share
+        self.positions["__GLOBAL_STATS__"]["total_realized_pnl"] += net_pnl_share
 
         if partial_pct >= 1.0:
             pos['status'] = 'CLOSED'

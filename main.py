@@ -94,7 +94,7 @@ def display_summary(results):
 
     total_pnl = unrealized_pnl + global_realized
     print(f"SALDO INICIAL: {INITIAL_CAPITAL:.2f} USDT | MARGEM TOTAL: {total_margin:.2f} USDT")
-    print(f"ALAVANCAGEM: {current_leverage:.2f}x | PnL ABERTO: {unrealized_pnl:.2f} | PnL REALIZADO: {global_realized:.2f} | TOTAL: {total_pnl:.2f} USDT")
+    print(f"ALAVANCAGEM: {current_leverage:.2f}x | PnL ABERTO: {unrealized_pnl:.2f} | PnL REALIZADO (Líquido): {global_realized:.2f} | TOTAL: {total_pnl:.2f} USDT")
 
     if current_leverage > 1.0:
         sensitivity = current_leverage

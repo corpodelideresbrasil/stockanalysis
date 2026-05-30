@@ -1,6 +1,7 @@
 # Configurações de Capital e Risco
-INITIAL_CAPITAL = 300.0  # USD
-RISK_PER_TRADE = 0.02    # 2% de risco do capital total por trade
+INITIAL_CAPITAL = 203.25  # USD (Saldo Atualizado)
+RISK_PER_TRADE = 0.02     # 2% de risco do capital total por trade
+COMMISSION_PCT = 0.0004   # 0.04% (Taxa média Binance Futures)
 
 # Configurações de Alavancagem Institucional
 MAX_LEVERAGE = 12             # Teto máximo rigoroso
