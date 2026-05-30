@@ -31,10 +31,10 @@ def display_table(results):
         # Tradução amigável para a UI
         mapping = {
             "HOLD": "HOLD",
-            "SUGGEST_TP1": ">> ALVO 1",
-            "SUGGEST_TP2": ">> ALVO 2",
-            "SUGGEST_SL": "!! STOP",
-            "SUGGEST_EXIT": "!! SAIR (RSI)",
+            "SUGGEST_TP1": "ALVO 1",
+            "SUGGEST_TP2": "ALVO 2",
+            "SUGGEST_SL": "STOP",
+            "SUGGEST_EXIT": "SAIR (RSI)",
             "ENTER": "NOVA ENTRADA"
         }
         action_str = mapping.get(action_str, action_str)
@@ -44,7 +44,7 @@ def display_table(results):
             if r.get('tp2_hit'): action_str = f"HOLD (TP2)"
             elif r.get('tp1_hit'): action_str = f"HOLD (TP1)"
 
-        if "CLOSED" in action_str or "EXIT" in action_str or "STOP" in action_str:
+        if "CLOSED" in action_str or "EXIT" in action_str or "STOP" in action_str or "SAIR" in action_str:
             action_str = f"!! {action_str}"
         elif "ENTER" in action_str or "ALVO" in action_str:
             action_str = f">> {action_str}"
