@@ -1,4 +1,4 @@
-# Manual do Usuário: Market Physics Regime Model (MPRM) V4.5 (Versão Pine V6)
+# Manual do Usuário: Market Physics Regime Model (MPRM) V4.7 (Versão Pine V6)
 
 O MPRM é um sistema físico-estocástico projetado para identificar regimes de mercado através de analogias com a mecânica clássica e termodinâmica. Em vez de utilizar indicadores técnicos tradicionais, o MPRM modela o preço como um corpo em movimento sujeito a forças de inércia, aceleração e coerência estrutural.
 
@@ -53,6 +53,11 @@ O MPRM V3.3 inclui uma camada operacional explícita para facilitar a tomada de 
     2.  Surge um **Risco de Reversão** (‼) severo (combinação de exaustão, desaceleração e divergência).
     3.  O regime de tendência se inverte (ex: de BULL para BEAR) **E** a direção estrutural ($\rho$) confirma a inversão.
     4.  **Energy Collapse:** Queda significativa da energia estrutural em relação à média histórica, sem proteção do macro filtro.
+
+**Novidade V4.7 (Quick-Loss & Operational Resilience):**
+*   **Mecanismo Quick-Loss (Inertia Failure):** O sistema agora detecta falhas imediatas de inércia nos primeiros 6 candles da operação. Se o preço estiver contra a entrada e a energia estrutural ($\Phi$) cair abaixo de 30% da sua média, a posição é encerrada imediatamente para preservar capital.
+*   **Persistência de Alvos no Dashboard:** Melhoria na estabilidade da renderização do painel em diferentes ativos (Ações, Cripto, Índices).
+*   **Buffer de Coerência Refinado:** Saídas por exaustão e Hurst são suspensas se a coerência estrutural for extrema (> 0.90), permitindo capturar o "topo do topo" em tendências fortes.
 
 **Novidade V4.5 (Precision Refinement & UI Standardization):**
 *   **Sanitização da Interface:** Cabeçalhos limpos e marcadores visuais (`BUY`, `SELL`, `EXIT`, `P1`, `P2`, `BE`) padronizados para melhor legibilidade em diferentes escalas de ativos (Cripto vs. Ações).
