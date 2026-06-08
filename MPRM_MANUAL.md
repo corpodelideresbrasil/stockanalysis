@@ -1,175 +1,70 @@
-# Manual do Usuário: Market Physics Regime Model (MPRM) V4.7 (Versão Pine V6)
+# Manual do Usuário: Market Physics Regime Model (MPRM) V4.7
 
-O MPRM é um sistema físico-estocástico projetado para identificar regimes de mercado através de analogias com a mecânica clássica e termodinâmica. Em vez de utilizar indicadores técnicos tradicionais, o MPRM modela o preço como um corpo em movimento sujeito a forças de inércia, aceleração e coerência estrutural.
-
----
-
-## 1. Teoria Física do Mercado
-
-O modelo baseia-se em quatro pilares fundamentais:
-
-### 1.1 Cinemática (Movimento)
-*   **Velocidade ($v$):** Variação logarítmica do preço no tempo ($\ln(P_t / P_{t-1})$). Isso torna o modelo invariante à escala de preço do ativo.
-*   **Aceleração ($a$):** Taxa de variação da velocidade.
-*   **Correlação Estrutural ($\rho$):** Mede a direção dominante do movimento nos últimos N períodos. É a bússola que mantém o regime TREND mesmo em pequenos pullbacks.
-*   **Jerk ($j$):** Taxa de variação da aceleração. Mede a instabilidade e "vibração" do sistema.
-
-### 1.2 Dinâmica e Energia
-*   **Massa ($m$):** Representa a "carga" do movimento, baseada na volatilidade e volume relativo.
-*   **Momentum ($p$):** Quantidade de movimento ($m \cdot v$).
-*   **Força ($F$):** Impacto da aceleração na massa do mercado ($m \cdot a$).
-*   **Energia Estrutural ($\Phi$):** Intensidade direcional do movimento ponderada pela coerência.
-*   **Eficiência ($\eta$):** Razão entre o deslocamento líquido e o caminho total percorrido.
-*   **Inércia ($I$):** Persistência do movimento, calculada como uma média ponderada do momentum absoluto.
-*   **Coerência Estrutural ($C$):** Grau de organização do movimento, medido pela correlação entre preço e tempo.
+O MPRM é um modelo avançado que transforma o mercado em um sistema físico. Ele não "prevê" o preço, mas identifica o **estado de energia** do mercado (Regime) para dizer se a tendência é sustentável ou se o movimento está prestes a colapsar.
 
 ---
 
-## 2. Regimes de Mercado (Legenda de Cores)
+## 1. Entendendo as Cores (Regimes)
 
-O sistema classifica o mercado em cinco estados principais, representados por cores no fundo e nas barras:
+O gráfico utiliza um sistema de cores duplo (Fundo e Candles) para que você nunca tenha dúvida sobre o estado atual.
 
-| Regime | Cor | Descrição Física | Comportamento Esperado |
-| :--- | :--- | :--- | :--- |
-| **BULL TREND** | 🟩 Verde | Alta Energia + Coerência Positiva + Aceleração Confirmada. | Tendência de alta estruturada. |
-| **BEAR TREND** | 🟥 Vermelho | Alta Energia + Coerência Negativa + Aceleração Confirmada. | Tendência de baixa estruturada. |
-| **COMPRESSION** | 🟦 Azul | Baixa Energia + Baixa Volatilidade + Alta Coerência. | Acúmulo de energia potencial para um rompimento. |
-| **EXHAUSTION** | 🟧 Laranja | Alta Instabilidade ($j$) + Perda de Eficiência + Divergência. | Risco iminente de exaustão e reversão. |
-| **CHAOS** | 🟪 Roxo | Baixa Coerência + Baixa Eficiência + Alta Turbulência. | Ruído dominante, sem direção clara (Lateralidade). |
+### O que as cores significam?
+*   🟩 **Verde (BULL):** Tendência de alta forte. O "motor" está girando com força e direção.
+*   🟥 **Vermelho (BEAR):** Tendência de baixa forte. O mercado está em queda livre estruturada.
+*   🟦 **Azul (COMPRESSION):** O mercado está "enchendo a mola". Baixa volatilidade, mas muita energia acumulada. Prepare-se para um estouro.
+*   🟧 **Laranja (EXHAUSTION):** O movimento cansou. Aceleração extrema ou divergência. É hora de apertar o stop ou realizar lucros.
+*   🟪 **Roxo (CHAOS):** Ruído total. Não há direção clara. Evite operar.
 
----
-
-## 3. Guia Operacional (Trading)
-
-O MPRM V3.3 inclui uma camada operacional explícita para facilitar a tomada de decisão:
-
-### 3.1 Entradas (Entry)
-*   **Sinal BUY (Triângulo Verde):** Ocorre quando o sistema transita para o regime **BULL TREND** vindo de estados de acúmulo (Compression) ou equilíbrio (Chaos).
-*   **Sinal SELL (Triângulo Vermelho):** Ocorre quando o sistema transita para o regime **BEAR TREND**.
-
-### 3.2 Saídas (Exit)
-*   **Sinal EXIT (X Branco):** Indica o fechamento da posição. Ocorre em situações principais:
-    1.  O sistema detecta **Exaustão** física (Orange) **E** a energia estrutural ($\Phi$) está em queda.
-    2.  Surge um **Risco de Reversão** (‼) severo (combinação de exaustão, desaceleração e divergência).
-    3.  O regime de tendência se inverte (ex: de BULL para BEAR) **E** a direção estrutural ($\rho$) confirma a inversão.
-    4.  **Energy Collapse:** Queda significativa da energia estrutural em relação à média histórica, sem proteção do macro filtro.
-
-**Novidade V4.7 (Quick-Loss & Operational Resilience):**
-*   **Mecanismo Quick-Loss (Inertia Failure):** O sistema agora detecta falhas imediatas de inércia nos primeiros 6 candles da operação. Se o preço estiver contra a entrada e a energia estrutural ($\Phi$) cair abaixo de 30% da sua média, a posição é encerrada imediatamente para preservar capital.
-*   **Persistência de Alvos no Dashboard:** Melhoria na estabilidade da renderização do painel em diferentes ativos (Ações, Cripto, Índices).
-*   **Buffer de Coerência Refinado:** Saídas por exaustão e Hurst são suspensas se a coerência estrutural for extrema (> 0.90), permitindo capturar o "topo do topo" em tendências fortes.
-
-**Novidade V4.5 (Precision Refinement & UI Standardization):**
-*   **Sanitização da Interface:** Cabeçalhos limpos e marcadores visuais (`BUY`, `SELL`, `EXIT`, `P1`, `P2`, `BE`) padronizados para melhor legibilidade em diferentes escalas de ativos (Cripto vs. Ações).
-*   **Reforço do Buffer Estrutural:** Aumento do limiar de coerência para **0.90** para garantir que apenas tendências de altíssima convicção anulem os sinais de exaustão, protegendo contra reversões falsas.
-*   **Dashboard Operacional v2:** Exibição imediata dos níveis de **Stop Loss** e **P1 Target** no momento da entrada, permitindo planejamento antecipado da gestão de risco.
-
-**Novidade V4.4 (Operational UX & Structural Persistence):**
-*   **Alvos no Dashboard:** O painel agora exibe os preços planejados para **Entry/BE**, **P1 Target**, e o limite de **Torque P2**, facilitando a execução manual.
-*   **Persistência Estrutural:** Implementação de um buffer que impede saídas por exaustão se a coerência estrutural for extrema (> 0.85). Ideal para manter posições em ativos como AAPL em tendências fortes.
-*   **Interface Limpa:** Simplificação das informações visuais para foco total no processo decisório.
-
-**Novidade V4.3 (Physical-Mechanical Profit Taking - PMPT):**
-*   **Gestão de Energia da Posição:** O sistema agora trata o lucro como energia que deve ser dissipada (realizada) para evitar o colapso térmico da posição (devolver o lucro).
-*   **P1 - Recuperação de Custo (50%):** Saída automática de 50% ao atingir 1.5x o risco inicial. O Stop Loss é movido para o preço de entrada (**Breakeven - BE**), garantindo que a operação não resulte mais em prejuízo.
-*   **P2 - Exaustão de Torque (25%):** Saída de mais 25% quando o **Torque Estrutural ($\tau$)** atinge um extremo estatístico (Z-Score > 2.0). Captura topos/fundos de exaustão antes da reversão.
-*   **Inertia-Trailing Floor (25%):** A parcela final da posição é protegida por um "chão de inércia" móvel. O stop segue a `EMA(preço) - (Inércia * Multiplicador)`, permitindo capturar o "rabicho" de grandes tendências.
-
-**Novidade V4.2 (Macro-Aware Hurst Exit):**
-*   **Gatilho Hurst Dinâmico:** Para evitar saídas prematuras em tendências "monstruosas" (como TRON ou BTC), o limite de saída por Hurst agora é dinâmico. Se o filtro macro (`macro_rho`) confirmar uma tendência forte (> 0.4), o sistema permite que o Hurst caia até **0.35** antes de encerrar a posição, permitindo que o ativo "respire" sem disparar o botão de pânico.
-
-**Novidade V4.1 (Intra-bar Physics & Absorption):**
-*   **Física de Pavios (Intra-bar Work):** O modelo agora analisa o "jogo de forças" dentro de cada candle. Pavios longos resultantes de tentativas de inversão frustradas são modelados como **Energia de Absorção**.
-*   **Reforço de Inércia:** Se uma força contrária tenta empurrar o preço mas a tendência a absorve (deixando um pavio), essa energia é injetada nos logits de regime como suporte, impedindo saídas prematuras e confirmando a dominância da inércia atual.
-
-**Novidade V4.0 (Inertia-Hurst Coupling & Dynamic Stability):**
-*   **Inertia-Hurst Coupling:** O sistema agora utiliza o Expoente de Hurst para reforçar a inércia do regime. Quando $H > 0.60$ (Persistência), o custo estatístico para sair de uma tendência aumenta (`hurst_boost`), evitando o "flickering" (trocas rápidas de sinal) em tendências macro.
-*   **Dynamic Stability Threshold:** A sensibilidade de entrada (`stability_thr`) agora é escalada dinamicamente pela Coerência Estrutural ($\rho$). Em zonas de alta coerência (> 0.8), o sistema torna-se mais exigente para mudar de estado, filtrando ruídos de micro-volatilidade.
-
-**Novidade V3.9 (Hurst Exit Overrides & Markov Decay):**
-*   **Hurst Exit Overrides:** Introdução de gatilhos de saída imediata baseados em anti-persistência. Se $H < 0.40$ (Forte Reversão), o sistema encerra a posição ignorando a probabilidade de permanência de Markov, otimizando a saída em topos/fundos de exaustão.
-*   **Classificação Granular de Hurst:**
-    *   *EXTREME:* $H > 0.75$ (Tendência extremamente forte, possível fragilidade estrutural).
-    *   *PERSISTENCE:* $H > 0.52$ (Tendência saudável).
-    *   *RANDOM:* $0.48 \leq H \leq 0.52$ (Ruído).
-    *   *CONSOLIDATION:* $0.40 \leq H < 0.48$ (Perda de memória direcional).
-    *   *REVERSION:* $H < 0.40$ (Forte viés de retorno à média).
-*   **Markov Memory Decay:** Implementação de um fator de decaimento (`markov_decay`) para a matriz de transição. Isso permite que o modelo "esqueça" comportamentos antigos e se adapte mais rapidamente às mudanças recentes na dinâmica do ativo.
-
-**Novidade V3.8 (Hurst Classification & Predictive Markov):**
-*   **Classificação de Hurst:** O valor do Expoente de Hurst traduzido em estados compreensíveis.
-*   **Previsão de Próximo Estado:** O dashboard agora exibe qual é o regime mais provável após o atual, baseado na memória estatística da Matriz de Markov, incluindo a probabilidade percentual dessa transição.
-
-**Novidade V3.7 (Position Tracking & Visual Linking):**
-*   **Monitoramento de Status:** O dashboard agora exibe se o sistema está em modo **LONG**, **SHORT** ou **FLAT**, com cores correspondentes.
-*   **Vínculo Visual de Trades:** Para facilitar a leitura do gráfico, os sinais de saída (`EXIT`) agora utilizam a mesma cor do sinal de entrada correspondente:
-    *   *Sinal BUY (Verde Limão) -> Sinal EXIT LONG (Verde Limão).*
-    *   *Sinal SELL (Vermelho) -> Sinal EXIT SHORT (Vermelho).*
-*   **Correção de Deadlock (V3.6.4):** Motor de Markov ajustado com regra de "Descoberta" para evitar travamento no regime inicial.
-
-**Novidade V3.6 (Hurst, Torque & Pine V6):**
-*   **Migração para Pine V6:** Código modernizado com `enums` e tipagem estrita para maior performance e estabilidade.
-*   **Hurst Exponent (Proxy):** Substituição da coerência linear por uma medida de persistência fractal. H > 0.5 indica tendência estruturada; H < 0.5 indica comportamento de reversão à média ou caos.
-*   **Torque Estrutural ($\tau = r \times F$):** Nova métrica de exaustão que mede a força de "rotação de regime". Detecta quando o preço está sobre-estendido em relação à sua massa e força de aceleração.
-*   **HMM-Lite (Markov Filter):** As transições de regime agora são filtradas estatisticamente. Na V3.6.3, foi adicionado um período de bootstrap (100 barras) para evitar que o sistema fique travado em Caos por falta de dados iniciais.
-*   **Separação $E_k$ e $E_p$:** Diferenciação clara entre Energia Cinética (movimento ativo) e Energia Potencial (acúmulo em compressão).
-
-**Novidade V3.3 (Inertia Persistence & Physical Gating):**
-*   **Filtro de Inércia (Inertia Buffer):** O sinal de saída antecipada (PEAK) agora exige que a Energia Ativa ($\Phi$) caia abaixo da Inércia Acumulada ($I$).
-*   **Gatilho de Transição Física (Physical Gating):** Impede que o sistema saia do regime de tendência por ruído estatístico se não houver um "Impulso Contrário" significativo.
-
-### 3.3 Avisos e Potenciais
-*   **Desaceleração (!):** Alerta que o preço continua subindo/descendo, mas a aceleração física já é contrária ao movimento.
-*   **Divergência (D):** O preço atingiu novas máximas/mínimas, mas a Energia ($\Phi$) ou Eficiência ($\eta$) caiu. Sinal clássico de topo/fundo fraco.
-*   **Risco de Reversão (‼):** Alerta crítico. Combinação de exaustão, desaceleração e divergência.
-*   **Potencial de Rompimento (⊙):** Detectado durante a Compressão quando a eficiência e a energia começam a subir. Antecipa o início de uma tendência.
+### Fundo vs. Candles: Qual seguir?
+*   **Cor do Fundo:** É o regime **Definitivo**. Ele manda na sua decisão macro.
+*   **Cor do Candle:** Segue o regime para facilitar a leitura visual.
+*   **Bordas do Candle:** Se a borda for **Verde Limão**, o preço fechou acima da abertura (alta no candle). Se for **Vinho/Marrom**, fechou abaixo (baixa no candle).
+*   **Dica de Ouro:** Se o fundo estiver **Verde** mas o candle tiver borda **Vinho**, é apenas um respiro (pullback) dentro de uma tendência de alta saudável. **Mantenha a posição.**
 
 ---
 
-## 4. Ajuste de Sensibilidade
+## 2. Guia de Operação (Passo a Passo)
 
-*   **Risk Warning Sensitivity:** Ajuste para tornar os sinais (‼) mais ou menos frequentes. Ativos voláteis como Cripto exigem valores maiores (ex: 2.0).
-*   **Divergence Sensitivity:** Controla quão sensível o sinal (D) é à queda de energia.
-*   **Trend Hysteresis:** Evita que o sistema saia do modo TREND por causa de pequenos ruídos. Mantém a posição "viva" durante correções saudáveis.
-*   **Markov Stay Persistence:** Aumenta a persistência em regimes de tendência baseada na memória estatística do ativo.
+### Passo 1: A Entrada (Quando comprar ou vender)
+Não tente adivinhar. Espere o sinal visual:
+1.  **Sinal Visual:** Procure pelo **Triângulo Verde (BUY)** ou **Triângulo Vermelho (SELL)** abaixo/acima das barras.
+2.  **Confirmação no Dashboard:** Olhe para o painel no canto superior direito.
+    *   O **Hurst** deve estar acima de **0.52** (cor verde ou azul) para uma entrada de alta convicção.
+    *   Se o Hurst estiver abaixo de 0.48, a entrada é arriscada (pode ser um falso rompimento).
+3.  **Ação:** Entre no fechamento do candle do sinal. O dashboard mostrará seu **Entry Price** e o **Stop Loss** sugerido.
+
+### Passo 2: Gestão da Posição (O lucro automático)
+O sistema usa o método **PMPT** (Realização Mecânica):
+*   **P1 (Alvo Amarelo):** Quando o preço atingir o **P1 Target** mostrado no painel, o sistema avisa. Venda **50%** da sua posição e mova seu stop para o preço de entrada (**Breakeven - BE**). Agora o risco é zero!
+*   **P2 (Alvo Laranja):** Se o valor de **Torque** no painel ficar maior que o limite, venda mais **25%**. Você capturou o topo da exaustão.
+*   **Restante (25%):** Deixe o preço correr enquanto estiver acima da linha cinza pontilhada (**Inertia Trail**).
+
+### Passo 3: A Saída Final (EXIT)
+Saia totalmente da operação se:
+1.  Aparecer um **X (EXIT)** no gráfico.
+2.  O preço tocar a linha de **Inertia Trail**.
+3.  Aparecer o aviso **QL (Quick Loss)**: Isso significa que a energia do mercado colapsou logo após sua entrada. Saia imediatamente para proteger seu capital.
 
 ---
 
-## 4. Parâmetros V3.0
-*   **Macro Lookback (200):** Janela para o filtro de viés estrutural.
-*   **Proximity Damping:** Algoritmo interno que calibra a sensibilidade da exaustão baseada na distância (em desvios padrões) do topo/fundo.
+## 3. Dicas de Otimização (Como ser um expert)
+
+O Passo 4 de otimização serve para ajustar o sistema ao seu perfil de risco e ao ativo que você opera.
+
+### Quando e como ajustar?
+1.  **Ativos muito "nervosos" (Cripto):**
+    *   Se você notar muitos sinais falsos de exaustão (Laranja) que logo voltam a ficar Verde, aumente o **Trend Hysteresis** para 0.15 ou 0.20. Isso dá mais "espaço" para a tendência respirar.
+2.  **Ativos Direcionais (Ações Blue Chips):**
+    *   Se a tendência for muito forte (Coerência > 0.90 no dashboard), você pode ignorar sinais de saída por exaustão e esperar o **Inertia Trail** ser atingido. Isso maximiza o lucro em grandes tendências (como NVIDIA ou AAPL).
+3.  **Uso do Filtro de Markov:**
+    *   Mantenha o **Use Markov Transition Filter** ligado. Ele evita que o sistema mude de ideia a cada pequena oscilação, exigindo uma "prova estatística" antes de mudar a cor do fundo.
+4.  **Hurst como Filtro de Qualidade:**
+    *   Se o dashboard mostrar **Hurst: RANDOM**, diminua o tamanho da sua mão. O mercado está sem memória e os sinais têm menos chance de seguir adiante.
 
 ---
 
-## 5. Matriz de Markov
-
-O painel superior direito exibe a probabilidade estatística de transição.
-*   **Next Likely #1:** Indica para qual regime o mercado costuma ir a partir do estado atual, baseado em todo o histórico do gráfico.
-*   **Stay Probability:** Indica a persistência do regime atual. O V3.3 usa essa métrica dinamicamente para endurecer a saída de tendências estáveis.
-
----
-
-## 6. Como Usar (Guia Operacional Diário)
-
-Este guia descreve como um operador deve interagir com o MPRM V4.4 no dia-a-dia para maximizar a assertividade e o lucro.
-
-### Passo 1: Identificação do Regime
-Observe a cor de fundo do gráfico e das barras:
-*   **Verde/Vermelho:** O mercado está em tendência. Se você não está posicionado, procure por correções (pullbacks) que mantenham a coerência alta.
-*   **Azul (Compression):** Fique atento. O mercado está acumulando energia. Um sinal de BUY/SELL logo após uma zona azul costuma ser explosivo.
-*   **Roxo (Chaos):** Não faça nada. O sistema está detectando ruído.
-
-### Passo 2: A Entrada (Entry)
-Quando surgir o triângulo de **BUY** ou **SELL**:
-1.  Verifique o **Hurst** no dashboard. Valores > 0.52 indicam uma entrada de alta probabilidade (Persistência).
-2.  Confirme o **Entry Price** no dashboard e coloque sua ordem.
-3.  O Stop inicial é sugerido em 2x ATR abaixo/acima da entrada.
-
-### Passo 3: Gestão de Parciais (PMPT)
-Uma vez posicionado, o dashboard mudará o status para **LONG** ou **SHORT**:
-1.  **Aguarde o P1:** Quando o preço atingir o **P1 Target** (amarelo no dashboard), venda 50% da posição. Mova seu stop físico para o preço de entrada (**BE**).
-2.  **Monitore o P2:** Fique de olho na linha **P2 Torque**. Se o valor atual (primeiro número) ultrapassar o limite (segundo número), venda mais 25%. O gráfico mostrará um círculo laranja.
-3.  **Deixe o Restante Correr:** Os últimos 25% devem ser encerrados apenas quando o preço fechar abaixo (em Long) ou acima (em Short) da linha **Inertia Trail** ou se surgir um sinal de **EXIT**.
-
-### Passo 4: Otimização
-*   Se o regime mudar para **Exhaustion (Laranja)** mas a **Stay Prob.** for alta e a coerência for > 0.90, a tendência ainda tem força estrutural. Não tenha pressa em sair antes do Trail ser atingido.
+## 4. Legenda Rápida de Avisos
+*   **( ! ) Desaceleração:** O preço sobe, mas o "combustível" está acabando. Atenção.
+*   **( D ) Divergência:** O preço fez máxima nova, mas a energia não acompanhou. Perigo de topo.
+*   **( !! ) Risco de Reversão:** Alerta máximo. Quase sempre precede uma mudança de cor para Laranja ou Roxo.
+*   **QL (Quick Loss):** Proteção de emergência. A inércia falhou logo após a compra.
