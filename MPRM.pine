@@ -2,7 +2,7 @@
 // © raulfernandoferreira
 
 //@version=6
-indicator("MPRM V4.4", shorttitle="MPRM", overlay=true, max_labels_count=500)
+indicator("Market Physics Regime Model", shorttitle="MPRM V4.5", overlay=true, max_labels_count=500)
 
 // ==========================================
 // 1. Enums & Inputs
@@ -157,6 +157,7 @@ var float entry_price = 0.0
 var float stop_loss = 0.0
 var bool tp1_hit = false
 var bool tp2_hit = false
+var float target_p1_var = na
 
 atr = ta.atr(14)
 bool cond_buy  = (regime == 0 and regime[1] != 0) or (regime == 0 and trade_state[1] == -1)
@@ -165,16 +166,19 @@ bool cond_sell = (regime == 1 and regime[1] != 1) or (regime == 1 and trade_stat
 trend_is_dom = (rho > 0.4 and s_bull > s_exh) or (rho < -0.4 and s_bear > s_exh)
 risk_reversal = z_exh > risk_sens and torque > ta.sma(torque, lookback_c) * 1.5
 
-// V4.4 Persistence Logic (Structural Coherence Buffer)
+// V4.5 Persistence Logic (Structural Coherence Buffer)
 // If structural coherence is extremely high, we suppress early exits even in exhaustion
-is_structured = coherence > 0.85
+// Increased threshold to 0.90 for tighter trend following override
+is_structured = coherence > 0.90
 exit_buffer   = is_structured ? 0.0 : 1.0
 
 // V4.2 Dynamic Hurst Threshold (Macro-Aware)
 // In strong macro trends (macro_rho > 0.4), we allow for deeper "breathing" (Hurst down to 0.35)
 h_exit_thr = (regime == 0 and macro_rho > 0.4) or (regime == 1 and macro_rho < -0.4) ? 0.35 : 0.40
-bool cond_exit_long  = trade_state[1] == 1 and ((regime == 3 and not trend_is_dom and exit_buffer > 0) or (risk_reversal and not trend_is_dom and exit_buffer > 0) or rho < -0.3 or hurst < h_exit_thr)
-bool cond_exit_short = trade_state[1] == -1 and ((regime == 3 and not trend_is_dom and exit_buffer > 0) or (risk_reversal and not trend_is_dom and exit_buffer > 0) or rho > 0.3 or hurst < h_exit_thr)
+
+// V4.5 Audit: Structural override now also protects against mild correlation decay
+bool cond_exit_long  = trade_state[1] == 1 and ((regime == 3 and not trend_is_dom and exit_buffer > 0) or (risk_reversal and not trend_is_dom and exit_buffer > 0) or (rho < -0.3 and exit_buffer > 0) or hurst < h_exit_thr)
+bool cond_exit_short = trade_state[1] == -1 and ((regime == 3 and not trend_is_dom and exit_buffer > 0) or (risk_reversal and not trend_is_dom and exit_buffer > 0) or (rho > 0.3 and exit_buffer > 0) or hurst < h_exit_thr)
 
 bool buy_sig  = false
 bool sell_sig = false
@@ -192,15 +196,16 @@ if trade_state == 0
         stop_loss := close - (atr * 2.0)
         tp1_hit := false
         tp2_hit := false
+        target_p1_var := entry_price + (math.abs(entry_price - stop_loss) * tp1_mult)
     else if cond_sell
         trade_state := -1, sell_sig := true
         entry_price := close
         stop_loss := close + (atr * 2.0)
         tp1_hit := false
         tp2_hit := false
+        target_p1_var := entry_price - (math.abs(entry_price - stop_loss) * tp1_mult)
 
 // PMPT Calculations (Global Scope to maintain ta.* buffers)
-float risk = math.abs(entry_price - stop_loss)
 z_torque = get_z(torque, norm_len)
 tp2_thr  = tp2_torque_z * m_pmpt
 
@@ -212,13 +217,8 @@ bool p2_trigger = false
 bool be_trigger = false
 var float active_trail = na
 
-float target_p1 = trade_state == 1 ? entry_price + (risk * tp1_mult) : trade_state == -1 ? entry_price - (risk * tp1_mult) : na
-float target_p2 = trade_state != 0 ? na : na // P2 is dynamic (Torque based), we'll show its threshold
-
 if trade_state == 1
-    target1 = target_p1
-
-    if not tp1_hit and high >= target1
+    if not tp1_hit and high >= target_p1_var
         tp1_hit := true
         p1_trigger := true
         stop_loss := entry_price // Breakeven
@@ -229,13 +229,11 @@ if trade_state == 1
         p2_trigger := true
 
     active_trail := na(active_trail[1]) ? inertia_trail_long : math.max(active_trail[1], inertia_trail_long)
-    if low < stop_loss or low < active_trail
-        trade_state := 0, exit_l := true, active_trail := na
+    if (not na(stop_loss) and low < stop_loss) or (not na(active_trail) and low < active_trail)
+        trade_state := 0, exit_l := true, active_trail := na, target_p1_var := na
 
 else if trade_state == -1
-    target1 = entry_price - (risk * tp1_mult)
-
-    if not tp1_hit and low <= target1
+    if not tp1_hit and low <= target_p1_var
         tp1_hit := true
         p1_trigger := true
         stop_loss := entry_price // Breakeven
@@ -246,8 +244,8 @@ else if trade_state == -1
         p2_trigger := true
 
     active_trail := na(active_trail[1]) ? inertia_trail_short : math.min(active_trail[1], inertia_trail_short)
-    if high > stop_loss or high > active_trail
-        trade_state := 0, exit_s := true, active_trail := na
+    if (not na(stop_loss) and high > stop_loss) or (not na(active_trail) and high > active_trail)
+        trade_state := 0, exit_s := true, active_trail := na, target_p1_var := na
 else
     active_trail := na
 
@@ -278,10 +276,10 @@ if barstate.islast
     table.cell(info, 1, 1, pos_txt, text_color=color.white, bgcolor=pos_col)
 
     if trade_state != 0
-        table.cell(info, 0, 2, "Entry / BE", text_color=color.white)
-        table.cell(info, 1, 2, str.tostring(entry_price, "#.##"), text_color=color.white)
+        table.cell(info, 0, 2, "Entry / Stop", text_color=color.white)
+        table.cell(info, 1, 2, str.tostring(entry_price, "#.##") + " / " + str.tostring(stop_loss, "#.##"), text_color=color.white)
         table.cell(info, 0, 3, "P1 Target", text_color=color.white)
-        table.cell(info, 1, 3, str.tostring(target_p1, "#.##"), text_color=tp1_hit ? color.gray : color.yellow)
+        table.cell(info, 1, 3, str.tostring(target_p1_var, "#.##"), text_color=tp1_hit ? color.gray : color.yellow)
         table.cell(info, 0, 4, "P2 Torque", text_color=color.white)
         table.cell(info, 1, 4, str.tostring(z_torque, "#.##") + " / " + str.tostring(tp2_thr, "#.##"), text_color=tp2_hit ? color.gray : color.orange)
         table.cell(info, 0, 5, "Trail", text_color=color.white)
@@ -319,12 +317,12 @@ if barstate.islast
 
 plotshape(buy_sig, "BUY", shape.triangleup, location.belowbar, color.lime, size=size.small, text="BUY")
 plotshape(sell_sig, "SELL", shape.triangledown, location=location.abovebar, color=color.red, size=size.small, text="SELL")
-plotshape(exit_l, "EXIT LONG", shape.xcross, location.abovebar, color=color.lime, size=size.tiny, text="EXIT")
-plotshape(exit_s, "EXIT SHORT", shape.xcross, location.belowbar, color=color.red, size=size.tiny, text="EXIT")
+plotshape(exit_l, "EXIT LONG", shape.xcross, location.abovebar, color.lime, size=size.small, text="EXIT")
+plotshape(exit_s, "EXIT SHORT", shape.xcross, location.belowbar, color.red, size=size.small, text="EXIT")
 
-plotshape(p1_trigger, "P1", shape.circle, location.abovebar, color.yellow, size=size.tiny, text="P1")
-plotshape(p2_trigger, "P2", shape.circle, location.abovebar, color.orange, size=size.tiny, text="P2")
-plotshape(be_trigger, "BE", shape.labelup, location.belowbar, color.gray, size=size.tiny, text="BE", textcolor=color.white)
+plotshape(p1_trigger, "P1", shape.circle, location.abovebar, color.yellow, size=size.small, text="P1")
+plotshape(p2_trigger, "P2", shape.circle, location.abovebar, color.orange, size=size.small, text="P2")
+plotshape(be_trigger, "BE", shape.labelup, location.belowbar, color.gray, size=size.small, text="BE", textcolor=color.white)
 
 plot(active_trail, "Inertia Trail", color=color.new(color.gray, 50), style=plot.style_linebr)
 

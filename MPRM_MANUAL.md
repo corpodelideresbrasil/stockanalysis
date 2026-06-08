@@ -1,4 +1,4 @@
-# Manual do Usuário: Market Physics Regime Model (MPRM) V4.4 (Versão Pine V6)
+# Manual do Usuário: Market Physics Regime Model (MPRM) V4.5 (Versão Pine V6)
 
 O MPRM é um sistema físico-estocástico projetado para identificar regimes de mercado através de analogias com a mecânica clássica e termodinâmica. Em vez de utilizar indicadores técnicos tradicionais, o MPRM modela o preço como um corpo em movimento sujeito a forças de inércia, aceleração e coerência estrutural.
 
@@ -53,6 +53,11 @@ O MPRM V3.3 inclui uma camada operacional explícita para facilitar a tomada de 
     2.  Surge um **Risco de Reversão** (‼) severo (combinação de exaustão, desaceleração e divergência).
     3.  O regime de tendência se inverte (ex: de BULL para BEAR) **E** a direção estrutural ($\rho$) confirma a inversão.
     4.  **Energy Collapse:** Queda significativa da energia estrutural em relação à média histórica, sem proteção do macro filtro.
+
+**Novidade V4.5 (Precision Refinement & UI Standardization):**
+*   **Sanitização da Interface:** Cabeçalhos limpos e marcadores visuais (`BUY`, `SELL`, `EXIT`, `P1`, `P2`, `BE`) padronizados para melhor legibilidade em diferentes escalas de ativos (Cripto vs. Ações).
+*   **Reforço do Buffer Estrutural:** Aumento do limiar de coerência para **0.90** para garantir que apenas tendências de altíssima convicção anulem os sinais de exaustão, protegendo contra reversões falsas.
+*   **Dashboard Operacional v2:** Exibição imediata dos níveis de **Stop Loss** e **P1 Target** no momento da entrada, permitindo planejamento antecipado da gestão de risco.
 
 **Novidade V4.4 (Operational UX & Structural Persistence):**
 *   **Alvos no Dashboard:** O painel agora exibe os preços planejados para **Entry/BE**, **P1 Target**, e o limite de **Torque P2**, facilitando a execução manual.
@@ -162,4 +167,4 @@ Uma vez posicionado, o dashboard mudará o status para **LONG** ou **SHORT**:
 3.  **Deixe o Restante Correr:** Os últimos 25% devem ser encerrados apenas quando o preço fechar abaixo (em Long) ou acima (em Short) da linha **Inertia Trail** ou se surgir um sinal de **EXIT**.
 
 ### Passo 4: Otimização
-*   Se o regime mudar para **Exhaustion (Laranja)** mas a **Stay Prob.** for alta e a coerência for > 0.85, a tendência ainda tem força estrutural. Não tenha pressa em sair antes do Trail ser atingido.
+*   Se o regime mudar para **Exhaustion (Laranja)** mas a **Stay Prob.** for alta e a coerência for > 0.90, a tendência ainda tem força estrutural. Não tenha pressa em sair antes do Trail ser atingido.

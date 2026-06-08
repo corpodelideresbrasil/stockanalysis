@@ -69,9 +69,9 @@ const HARD_START_DATE = new Date(2025, 0, 1);
 const PERC_MIN = 0.2;
 const PERC_MAX = 3.0;
 const PERC_STEP = 0.1;
-const MIN_ACERTO = 70;
-const MIN_TRADES = 0;
-const EV_MIN = 0;
+const MIN_ACERTO = 72.5;
+const MIN_TRADES = 10;
+const EV_MIN = 0.5;
 const CI_LOWER_MIN = 0.50;
 const MIN_GAIN_PERCENT = 0.15;
 
@@ -408,6 +408,7 @@ function gerarParametrosERecomendacoes() {
     "Melhor_Param_Venda(%)", "Taxa_Acerto_Venda(%)", "Trades_Venda", "#Ganho_Médio_Venda(%)", "EV_Venda(%)", "IC95_L_Venda(%)", "Ganho_Médio_Lucros_V(%)", "Perda_Média_Prejuízos_V(%)"
   ]);
   if (resultados.length) {
+    resultados.sort((a, b) => String(a[0]).localeCompare(String(b[0])));
     shP.getRange(2,1,resultados.length,resultados[0].length).setValues(resultados);
     shP.autoResizeColumns(1,17);
   }
