@@ -1,4 +1,4 @@
-# Manual do Usuário: Market Physics Regime Model (MPRM) V4.3 (Versão Pine V6)
+# Manual do Usuário: Market Physics Regime Model (MPRM) V4.4 (Versão Pine V6)
 
 O MPRM é um sistema físico-estocástico projetado para identificar regimes de mercado através de analogias com a mecânica clássica e termodinâmica. Em vez de utilizar indicadores técnicos tradicionais, o MPRM modela o preço como um corpo em movimento sujeito a forças de inércia, aceleração e coerência estrutural.
 
@@ -53,6 +53,11 @@ O MPRM V3.3 inclui uma camada operacional explícita para facilitar a tomada de 
     2.  Surge um **Risco de Reversão** (‼) severo (combinação de exaustão, desaceleração e divergência).
     3.  O regime de tendência se inverte (ex: de BULL para BEAR) **E** a direção estrutural ($\rho$) confirma a inversão.
     4.  **Energy Collapse:** Queda significativa da energia estrutural em relação à média histórica, sem proteção do macro filtro.
+
+**Novidade V4.4 (Operational UX & Structural Persistence):**
+*   **Alvos no Dashboard:** O painel agora exibe os preços planejados para **Entry/BE**, **P1 Target**, e o limite de **Torque P2**, facilitando a execução manual.
+*   **Persistência Estrutural:** Implementação de um buffer que impede saídas por exaustão se a coerência estrutural for extrema (> 0.85). Ideal para manter posições em ativos como AAPL em tendências fortes.
+*   **Interface Limpa:** Simplificação das informações visuais para foco total no processo decisório.
 
 **Novidade V4.3 (Physical-Mechanical Profit Taking - PMPT):**
 *   **Gestão de Energia da Posição:** O sistema agora trata o lucro como energia que deve ser dissipada (realizada) para evitar o colapso térmico da posição (devolver o lucro).
@@ -131,3 +136,30 @@ O MPRM V3.3 inclui uma camada operacional explícita para facilitar a tomada de 
 O painel superior direito exibe a probabilidade estatística de transição.
 *   **Next Likely #1:** Indica para qual regime o mercado costuma ir a partir do estado atual, baseado em todo o histórico do gráfico.
 *   **Stay Probability:** Indica a persistência do regime atual. O V3.3 usa essa métrica dinamicamente para endurecer a saída de tendências estáveis.
+
+---
+
+## 6. Como Usar (Guia Operacional Diário)
+
+Este guia descreve como um operador deve interagir com o MPRM V4.4 no dia-a-dia para maximizar a assertividade e o lucro.
+
+### Passo 1: Identificação do Regime
+Observe a cor de fundo do gráfico e das barras:
+*   **Verde/Vermelho:** O mercado está em tendência. Se você não está posicionado, procure por correções (pullbacks) que mantenham a coerência alta.
+*   **Azul (Compression):** Fique atento. O mercado está acumulando energia. Um sinal de BUY/SELL logo após uma zona azul costuma ser explosivo.
+*   **Roxo (Chaos):** Não faça nada. O sistema está detectando ruído.
+
+### Passo 2: A Entrada (Entry)
+Quando surgir o triângulo de **BUY** ou **SELL**:
+1.  Verifique o **Hurst** no dashboard. Valores > 0.52 indicam uma entrada de alta probabilidade (Persistência).
+2.  Confirme o **Entry Price** no dashboard e coloque sua ordem.
+3.  O Stop inicial é sugerido em 2x ATR abaixo/acima da entrada.
+
+### Passo 3: Gestão de Parciais (PMPT)
+Uma vez posicionado, o dashboard mudará o status para **LONG** ou **SHORT**:
+1.  **Aguarde o P1:** Quando o preço atingir o **P1 Target** (amarelo no dashboard), venda 50% da posição. Mova seu stop físico para o preço de entrada (**BE**).
+2.  **Monitore o P2:** Fique de olho na linha **P2 Torque**. Se o valor atual (primeiro número) ultrapassar o limite (segundo número), venda mais 25%. O gráfico mostrará um círculo laranja.
+3.  **Deixe o Restante Correr:** Os últimos 25% devem ser encerrados apenas quando o preço fechar abaixo (em Long) ou acima (em Short) da linha **Inertia Trail** ou se surgir um sinal de **EXIT**.
+
+### Passo 4: Otimização
+*   Se o regime mudar para **Exhaustion (Laranja)** mas a **Stay Prob.** for alta e a coerência for > 0.85, a tendência ainda tem força estrutural. Não tenha pressa em sair antes do Trail ser atingido.
