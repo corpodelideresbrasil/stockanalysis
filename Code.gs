@@ -1,18 +1,27 @@
-// =================================================================
-// =================== FUNÇÕES PRINCIPAIS E MENU ===================
-// =================================================================
+/**
+ * @OnlyCurrentDoc
+ */
 
 function onOpen() {
   SpreadsheetApp.getUi()
-      .createMenu('🤖 Análise de Ações')
-      .addItem('Executar Atualização Completa', 'executarAtualizacaoCompleta')
-      .addSeparator()
-      .addItem('Apenas Gerar Recomendações', 'gerarParametrosERecomendacoes')
-      .addSeparator()
-      .addItem('Limpar Dados Antigos', 'limparDadosAntigos')
-      .addItem('Resetar Progresso de Lotes', 'resetarProgresso')
-      .addToUi();
+    .createMenu('🤖 Análise de Ações')
+    .addItem('1. Executar Atualização Completa', 'executarAtualizacaoCompleta')
+    .addSeparator()
+    .addItem('2. Resetar Progresso (Lotes)', 'resetarProgresso')
+    .addItem('3. Limpar Dados e Resultados', 'limparDadosAntigos')
+    .addToUi();
 }
+
+/**
+ *
+ * Para executar, abra o editor de scripts (Extensões > Apps Script).
+ * Na barra superior, selecione a função que deseja executar (ex: executarAtualizacaoCompleta) e clique em "Executar".
+ * Na primeira vez, você precisará autorizar as permissões que o script solicita.
+ */
+
+// =================================================================
+// =================== FUNÇÕES PRINCIPAIS ==========================
+// =================================================================
 
 function executarAtualizacaoCompleta() {
   SpreadsheetApp.getActiveSpreadsheet().toast("Iniciando processamento...");
@@ -60,11 +69,11 @@ const HARD_START_DATE = new Date(2025, 0, 1);
 const PERC_MIN = 0.2;
 const PERC_MAX = 3.0;
 const PERC_STEP = 0.1;
-const MIN_ACERTO = 60;
-const MIN_TRADES = 0;
-const EV_MIN = 0;
+const MIN_ACERTO = 72.5;
+const MIN_TRADES = 10;
+const EV_MIN = 0.5;
 const CI_LOWER_MIN = 0.50;
-const MIN_GAIN_PERCENT = 0.15; // Ganho médio mínimo para que uma recomendação seja exibida
+const MIN_GAIN_PERCENT = 0.15;
 
 // =================================================================
 // =================== FUNÇÃO DE ATUALIZAÇÃO DE DADOS ================
@@ -148,7 +157,6 @@ function atualizarDadosDiarios() {
         startDate = nextDay;
       }
 
-      // *** LÓGICA DE DATA CORRIGIDA PARA EVITAR ERROS DE FUSO HORÁRIO ***
       const ontemStr = Utilities.formatDate(ontem, tz, 'yyyy-MM-dd');
       const startDateStr = Utilities.formatDate(startDate, tz, 'yyyy-MM-dd');
 
@@ -286,12 +294,15 @@ function gerarParametrosERecomendacoes() {
     const candles = byTicker[tk];
     if (candles.length < 2) continue;
 
-    let bestBuy = {p:0, acerto:0, trades:0, ganho:0, ev:0, ciL:0};
-    let bestSell= {p:0, acerto:0, trades:0, ganho:0, ev:0, ciL:0};
+    let bestBuy = {p:0, acerto:0, trades:0, ganho:0, ev:0, ciL:0, avgWin: 0, avgLoss: 0, maxDD: 0};
+    let bestSell= {p:0, acerto:0, trades:0, ganho:0, ev:0, ciL:0, avgWin: 0, avgLoss: 0, maxDD: 0};
 
     for (let p = PERC_MIN; p <= PERC_MAX + 1e-9; p += PERC_STEP) {
       let compTrades=0, compWins=0, compSumSigned=0, compWinSum=0, compLossSumAbs=0;
       let vendTrades=0, vendWins=0, vendSumSigned=0, vendWinSum=0, vendLossSumAbs=0;
+
+      let compCumulativeReturn = 0, compPeak = 0, compMaxDrawdown = 0;
+      let vendCumulativeReturn = 0, vendPeak = 0, vendMaxDrawdown = 0;
 
       for (let i = 1; i < candles.length; i++) {
         const prevClose = candles[i-1].close;
@@ -303,8 +314,19 @@ function gerarParametrosERecomendacoes() {
           compTrades++;
           const retPct = ((close - buyEntry) / buyEntry) * 100;
           compSumSigned += retPct;
-          if (retPct > 0) { compWins++; compWinSum += retPct; }
-          else { compLossSumAbs += -retPct; }
+          if (retPct > 0) {
+            compWins++; compWinSum += retPct;
+          } else {
+            compLossSumAbs += -retPct;
+          }
+          compCumulativeReturn += retPct;
+          if (compCumulativeReturn > compPeak) {
+            compPeak = compCumulativeReturn;
+          }
+          const drawdown = compPeak - compCumulativeReturn;
+          if (drawdown > compMaxDrawdown) {
+            compMaxDrawdown = drawdown;
+          }
         }
 
         const sellEntry = prevClose * (1 + p/100);
@@ -312,8 +334,19 @@ function gerarParametrosERecomendacoes() {
           vendTrades++;
           const retPct = ((sellEntry - close) / sellEntry) * 100;
           vendSumSigned += retPct;
-          if (retPct > 0) { vendWins++; vendWinSum += retPct; }
-          else { vendLossSumAbs += -retPct; }
+          if (retPct > 0) {
+            vendWins++; vendWinSum += retPct;
+          } else {
+            vendLossSumAbs += -retPct;
+          }
+          vendCumulativeReturn += retPct;
+          if (vendCumulativeReturn > vendPeak) {
+            vendPeak = vendCumulativeReturn;
+          }
+          const drawdown = vendPeak - vendCumulativeReturn;
+          if (drawdown > vendMaxDrawdown) {
+            vendMaxDrawdown = drawdown;
+          }
         }
       }
 
@@ -337,18 +370,18 @@ function gerarParametrosERecomendacoes() {
       const vendCiL = vendTrades ? wilsonLower(vendWins, vendTrades) : 0;
 
       if (compAcc > bestBuy.acerto || (compAcc === bestBuy.acerto && compGain > bestBuy.ganho)) {
-        bestBuy = {p, acerto:compAcc, trades:compTrades, ganho:compGain, ev:compEV, ciL:compCiL};
+        bestBuy = {p, acerto:compAcc, trades:compTrades, ganho:compGain, ev:compEV, ciL:compCiL, avgWin: compAvgWin, avgLoss: compAvgLoss, maxDD: compMaxDrawdown};
       }
       if (vendAcc > bestSell.acerto || (vendAcc === bestSell.acerto && vendGain > bestSell.ganho)) {
-        bestSell = {p, acerto:vendAcc, trades:vendTrades, ganho:vendGain, ev:vendEV, ciL:vendCiL};
+        bestSell = {p, acerto:vendAcc, trades:vendTrades, ganho:vendGain, ev:vendEV, ciL:vendCiL, avgWin: vendAvgWin, avgLoss: vendAvgLoss, maxDD: vendMaxDrawdown};
       }
     }
 
     const plainTk = removeBVMF(tk);
     resultados.push([
       plainTk,
-      round2(bestBuy.p), round2(bestBuy.acerto), bestBuy.trades, round2(bestBuy.ganho), round2(bestBuy.ev), round2(bestBuy.ciL*100),
-      round2(bestSell.p), round2(bestSell.acerto), bestSell.trades, round2(bestSell.ganho), round2(bestSell.ev), round2(bestSell.ciL*100)
+      round2(bestBuy.p), round2(bestBuy.acerto), bestBuy.trades, round2(bestBuy.ganho), round2(bestBuy.ev), round2(bestBuy.ciL*100), round2(bestBuy.avgWin), round2(bestBuy.avgLoss),
+      round2(bestSell.p), round2(bestSell.acerto), bestSell.trades, round2(bestSell.ganho), round2(bestSell.ev), round2(bestSell.ciL*100), round2(bestSell.avgWin), round2(bestSell.avgLoss)
     ]);
 
     if (candles.length >= 1) {
@@ -359,43 +392,50 @@ function gerarParametrosERecomendacoes() {
       const sellTarget= sellEntry * (1 - bestSell.ganho/100);
 
       if (bestBuy.trades >= MIN_TRADES && bestBuy.acerto >= MIN_ACERTO && bestBuy.ev > EV_MIN && bestBuy.ciL > CI_LOWER_MIN && bestBuy.ganho > MIN_GAIN_PERCENT) {
-        comprasRecomendadas.push([plainTk, "COMPRA", round2(bestBuy.p), round2(prevClose), round2(buyEntry), round2(bestBuy.acerto), round2(bestBuy.ganho), round2(bestBuy.ev), round2(bestBuy.ciL*100), round2(buyTarget)]);
+        comprasRecomendadas.push([plainTk, "COMPRA", bestBuy.p/100, prevClose, buyEntry, bestBuy.acerto/100, bestBuy.ganho/100, bestBuy.ev/100, bestBuy.ciL, buyTarget, bestBuy.maxDD/100]);
       }
       if (bestSell.trades >= MIN_TRADES && bestSell.acerto >= MIN_ACERTO && bestSell.ev > EV_MIN && bestSell.ciL > CI_LOWER_MIN && bestSell.ganho > MIN_GAIN_PERCENT) {
-        vendasRecomendadas.push([plainTk, "VENDA",  round2(bestSell.p), round2(prevClose), round2(sellEntry), round2(bestSell.acerto), round2(bestSell.ganho), round2(bestSell.ev), round2(bestSell.ciL*100), round2(sellTarget)]);
+        vendasRecomendadas.push([plainTk, "VENDA", bestSell.p/100, prevClose, sellEntry, bestSell.acerto/100, bestSell.ganho/100, bestSell.ev/100, bestSell.ciL, sellTarget, bestSell.maxDD/100]);
       }
     }
   }
 
   const shP = upsertSheet(ss, "Parametros_por_Ticker");
   shP.clear();
-  shP.appendRow(["Ticker","Melhor_Param_Compra(%)","Taxa_Acerto_Compra(%)","Trades_Compra","#Ganho_Médio_Compra(%)","EV_Compra(%)","IC95_L_Compra(%)","Melhor_Param_Venda(%)","Taxa_Acerto_Venda(%)","Trades_Venda","#Ganho_Médio_Venda(%)","EV_Venda(%)","IC95_L_Venda(%)"]);
+  shP.appendRow([
+    "Ticker",
+    "Melhor_Param_Compra(%)", "Taxa_Acerto_Compra(%)", "Trades_Compra", "#Ganho_Médio_Compra(%)", "EV_Compra(%)", "IC95_L_Compra(%)", "Ganho_Médio_Lucros_C(%)", "Perda_Média_Prejuízos_C(%)",
+    "Melhor_Param_Venda(%)", "Taxa_Acerto_Venda(%)", "Trades_Venda", "#Ganho_Médio_Venda(%)", "EV_Venda(%)", "IC95_L_Venda(%)", "Ganho_Médio_Lucros_V(%)", "Perda_Média_Prejuízos_V(%)"
+  ]);
   if (resultados.length) {
+    resultados.sort((a, b) => String(a[0]).localeCompare(String(b[0])));
     shP.getRange(2,1,resultados.length,resultados[0].length).setValues(resultados);
-    shP.autoResizeColumns(1,13);
+    shP.autoResizeColumns(1,17);
   }
 
   const shR = upsertSheet(ss, "Recomendacoes_diarias");
   shR.clear();
-  shR.appendRow(["Ticker","Direção","Gatilho(%)","Fech. Anterior","Entrada","Acerto(%)","Ganho_Médio(%)","EV(%)","IC95_L(%)","Alvo"]);
+  shR.appendRow(["Ticker","Direção","Gatilho(%)","Fech. Anterior","Entrada","Acerto(%)","Ganho_Médio(%)","EV(%)","IC95_L(%)","Alvo", "Max_Drawdown(%)"]);
+
+  const recomends = [...comprasRecomendadas, ...vendasRecomendadas];
+
   if (recomends.length){
-    // Ordena por Ganho (%) descendente
-    recomends.sort((a, b) => b[6] - a[6]);
+    // Ordenação alfabética por ticker conforme requisito
+    recomends.sort((a, b) => String(a[0]).localeCompare(String(b[0])));
 
     shR.getRange(2,1,recomends.length,recomends[0].length).setValues(recomends);
 
-    // Aplica formatação de números
-    shR.getRange('C2:C').setNumberFormat("0.0\"%\"");
+    shR.getRange('C2:C').setNumberFormat("0.00%");
     shR.getRange('D2:E').setNumberFormat("R$ #,##0.00");
-    shR.getRange('F2:I').setNumberFormat("0.00\"%\"");
+    shR.getRange('F2:I').setNumberFormat("0.00%");
     shR.getRange('J2:J').setNumberFormat("R$ #,##0.00");
+    shR.getRange('K2:K').setNumberFormat("0.00%");
 
-    // Aplica formatação condicional de cor
     for (let i=0; i<recomends.length; i++){
       const dir = recomends[i][1];
-      shR.getRange(i+2, 1, 1, 10).setBackground(dir === "COMPRA" ? "#e6f4ea" : "#fce8e6");
+      shR.getRange(i+2, 1, 1, recomends[0].length).setBackground(dir === "COMPRA" ? "#e6f4ea" : "#fce8e6");
     }
-    shR.autoResizeColumns(1,10);
+    shR.autoResizeColumns(1, recomends[0].length);
   }
   SpreadsheetApp.getActiveSpreadsheet().toast("Parâmetros e Recomendações gerados!");
 }

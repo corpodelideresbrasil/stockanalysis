@@ -1,0 +1,408 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © raulfernandoferreira
+
+//@version=6
+indicator("Market Physics Regime Model", shorttitle="MPRM V4.7", overlay=true, max_labels_count=500)
+
+// Declutter Indicator Status Line
+// Use plot(na, ...) to keep labels available for table/data window without cluttering the status bar
+plot(na, "--- Physics Indicators ---", display=display.none)
+// Force calculation on all bars to ensure ta.* buffers are healthy
+// before the final table render.
+// 1. Enums & Inputs
+// ==========================================
+enum AssetProfile
+    CRYPTO
+    EQUITIES
+    INDICES
+
+lookback_c      = input.int(20, "Coherence/Hurst Lookback", minval=5, group="Core Physics")
+lookback_macro  = input.int(200, "Macro Anchor", minval=50, group="Core Physics")
+lookback_norm   = input.int(100, "Normalization Window", minval=10, group="Core Physics")
+tau             = input.int(10, "Inertia EMA (τ)", minval=1, group="Core Physics")
+
+profile_input   = input.string("EQUITIES", "Asset Physics Profile", options=["CRYPTO", "EQUITIES", "INDICES"], group="Decision Logic")
+asset_profile   = profile_input == "CRYPTO" ? AssetProfile.CRYPTO : profile_input == "INDICES" ? AssetProfile.INDICES : AssetProfile.EQUITIES
+
+stability_thr   = input.float(0.30, "Stability Threshold", minval=0.1, maxval=1.0, step=0.05, group="Decision Logic")
+risk_sens_base  = input.float(1.5, "Risk Sensitivity", minval=0.5, maxval=3.0, step=0.1, group="Decision Logic")
+hysteresis_base = input.float(0.08, "Trend Hysteresis", minval=0.0, maxval=0.5, step=0.01, group="Decision Logic")
+use_markov_filt = input.bool(true, "Use Markov Transition Filter", group="Decision Logic")
+markov_decay    = input.float(0.99, "Markov Memory Decay", minval=0.9, maxval=1.0, step=0.005, group="Decision Logic", tooltip="Decay factor for transition counts. 1.0 = infinite memory, 0.99 = ~100 bars effective memory.")
+
+table_transp    = input.int(40, "Table Transparency", minval=0, maxval=100, group="Visuals")
+use_phys_candles = input.bool(true, "Use Physics Candles", group="Visuals")
+
+tp1_mult        = input.float(1.5, "TP1 Risk Multiplier", minval=0.5, step=0.1, group="Management (PMPT)")
+tp2_torque_z    = input.float(2.0, "TP2 Torque Z-Score", minval=1.0, step=0.1, group="Management (PMPT)")
+trail_inertia_mult = input.float(2.0, "Inertia Trail Multiplier", minval=1.0, step=0.1, group="Management (PMPT)")
+
+// Impedance Matching
+float m_sens  = asset_profile == AssetProfile.CRYPTO ? 1.4 : asset_profile == AssetProfile.INDICES ? 0.75 : 1.0
+float m_hyst  = asset_profile == AssetProfile.CRYPTO ? 1.3 : asset_profile == AssetProfile.INDICES ? 1.2 : 1.0
+float m_norm  = asset_profile == AssetProfile.CRYPTO ? 1.5 : asset_profile == AssetProfile.INDICES ? 0.8 : 1.0
+float m_pmpt  = asset_profile == AssetProfile.CRYPTO ? 1.2 : asset_profile == AssetProfile.INDICES ? 0.9 : 1.0
+
+risk_sens  = risk_sens_base * m_sens
+hysteresis = hysteresis_base * m_hyst
+norm_len   = math.round(lookback_norm * m_norm)
+
+// ==========================================
+// 2. Physical Quantities
+// ==========================================
+v = math.log(close / close[1])
+a = v - v[1]
+j = a - a[1]
+
+get_hurst(len) =>
+    range_p = ta.highest(close, len) - ta.lowest(close, len)
+    std_p = ta.stdev(close, len)
+    h = math.log(math.max(range_p, 1e-10) / math.max(std_p, 1e-10)) / math.log(len)
+    math.max(0.0, math.min(1.0, h))
+
+get_n(r) => r == 0 ? "BULL" : r == 1 ? "BEAR" : r == 2 ? "COMP" : r == 3 ? "EXH" : "CHAOS"
+
+hurst = get_hurst(lookback_c)
+rho = ta.correlation(close, bar_index, lookback_c)
+coherence = math.abs(rho)
+
+rel_vol = (not na(volume) and volume > 0 ? (volume / ta.sma(volume, lookback_c)) : 1.0)
+mass = nz(rel_vol * ta.stdev(v, lookback_c))
+force = mass * a
+displacement_r = (close - ta.sma(close, lookback_c)) / math.max(ta.stdev(close, lookback_c), 1e-10)
+torque = math.abs(displacement_r * force)
+
+ek = math.pow(v, 2) * mass
+inertia = ta.ema(mass * math.abs(v), tau)
+phi = coherence * (ek + inertia)
+ep = ta.ema((1 / math.max(ta.stdev(v, lookback_c), 1e-10)) * coherence, tau)
+
+// V4.1 Intra-bar Physics (Absorption & Rejection)
+intra_work = high - low
+upper_wick = high - math.max(open, close)
+lower_wick = math.min(open, close) - low
+absorption_bull = (lower_wick / math.max(intra_work, 1e-10)) * mass
+absorption_bear = (upper_wick / math.max(intra_work, 1e-10)) * mass
+
+// ==========================================
+// 3. Normalization & Logits
+// ==========================================
+get_z(src, len) =>
+    float _src = nz(src)
+    m = ta.sma(_src, len)
+    s = ta.stdev(_src, len)
+    m_eff = na(m) ? (ta.cum(_src) / math.max(bar_index + 1, 1)) : m
+    s_eff = na(s) or s == 0 ? 1.0 : s
+    (_src - m_eff) / s_eff
+
+macro_rho = ta.correlation(close, bar_index, lookback_macro)
+v_momentum = ta.ema(v, 3)
+
+// V4.1 Injecting Absorption Energy into Logits
+z_bull = get_z(rho > 0.05 ? (phi + v_momentum * 10 + absorption_bull * 5) : -phi, norm_len) + (macro_rho > 0.3 ? 0.5 : 0)
+z_bear = get_z(rho < -0.05 ? (phi - v_momentum * 10 + absorption_bear * 5) : -phi, norm_len) + (macro_rho < -0.3 ? 0.5 : 0)
+
+path = math.sum(math.abs(v), lookback_c)
+disp = math.abs(math.sum(v, lookback_c))
+eff  = disp / math.max(path, 1e-10)
+z_comp = get_z(ep * (1 - eff) * (1 - coherence), norm_len)
+
+z_exh = get_z(torque + math.abs(j) * (1 - hurst), norm_len)
+z_chaos = get_z((1 - coherence) * (1 - eff) * ta.stdev(v, lookback_c), norm_len) * 0.7
+
+// ==========================================
+// 4. Decision Engine
+// ==========================================
+var int regime = 4
+float max_z = math.max(z_bull, z_bear, z_comp, z_exh, z_chaos)
+float exp_sum = math.exp(z_bull - max_z) + math.exp(z_bear - max_z) + math.exp(z_comp - max_z) + math.exp(z_exh - max_z) + math.exp(z_chaos - max_z)
+
+s_bull  = math.exp(z_bull - max_z) / exp_sum
+s_bear  = math.exp(z_bear - max_z) / exp_sum
+s_comp  = math.exp(z_comp - max_z) / exp_sum
+s_exh   = math.exp(z_exh - max_z) / exp_sum
+s_chaos = math.exp(z_chaos - max_z) / exp_sum
+
+float max_s = math.max(s_bull, s_bear, s_comp, s_exh, s_chaos)
+int raw_regime = max_s == s_bull ? 0 : max_s == s_bear ? 1 : max_s == s_comp ? 2 : max_s == s_exh ? 3 : 4
+
+var float[] transitions = array.new_float(25, 0.0)
+curr_r_idx = nz(regime[1], 4)
+sum_t = 0.0
+for i = 0 to 4
+    sum_t += array.get(transitions, curr_r_idx * 5 + i)
+sum_t := math.max(sum_t, 1.0)
+p_stay = array.get(transitions, curr_r_idx * 5 + curr_r_idx) / sum_t
+
+p_transition = array.get(transitions, curr_r_idx * 5 + raw_regime) / sum_t
+bool markov_gate_change = not use_markov_filt or (sum_t < 200) or (p_transition > 0) or (max_s > 0.45)
+
+is_trend = regime == 0 or regime == 1
+current_trend_score = regime == 0 ? s_bull : s_bear
+macro_boost = (regime == 0 and macro_rho > 0.5) or (regime == 1 and macro_rho < -0.5) ? 0.05 : 0.0
+stay_gate = p_stay > 0.6 ? 0.10 : 0.04
+
+// V4.0 Inertia-Hurst Coupling
+hurst_boost = hurst > 0.75 ? 0.12 : hurst > 0.60 ? 0.06 : 0.0
+inertia_gate = is_trend and coherence > 0.7 and (phi > inertia or hurst > 0.6)
+exit_gate = is_trend ? (raw_regime == regime or (max_s > current_trend_score + hysteresis + stay_gate + macro_boost + hurst_boost and not inertia_gate)) : true
+
+// Dynamic Stability Threshold scaling
+dyn_stability = stability_thr * (1.0 + (coherence > 0.8 ? 0.2 : 0.0))
+
+if max_s > dyn_stability and exit_gate and markov_gate_change
+    regime := raw_regime
+
+// ==========================================
+// 5. Operational layer
+// ==========================================
+var int trade_state = 0
+var float entry_price = 0.0
+var float stop_loss = 0.0
+var bool tp1_hit = false
+var bool tp2_hit = false
+var float target_p1_var = na
+
+atr = nz(ta.atr(14))
+bool cond_buy  = (regime == 0 and regime[1] != 0) or (regime == 0 and trade_state[1] == -1)
+bool cond_sell = (regime == 1 and regime[1] != 1) or (regime == 1 and trade_state[1] == 1)
+
+trend_is_dom = (rho > 0.4 and s_bull > s_exh) or (rho < -0.4 and s_bear > s_exh)
+risk_reversal = z_exh > risk_sens and torque > ta.sma(torque, lookback_c) * 1.5
+
+// V4.5 Persistence Logic (Structural Coherence Buffer)
+// If structural coherence is extremely high, we suppress early exits even in exhaustion
+// Increased threshold to 0.90 for tighter trend following override
+is_structured = coherence > 0.90
+exit_buffer   = is_structured ? 0.0 : 1.0
+
+// V4.2 Dynamic Hurst Threshold (Macro-Aware)
+// In strong macro trends (macro_rho > 0.4), we allow for deeper "breathing" (Hurst down to 0.35)
+h_exit_thr = (regime == 0 and macro_rho > 0.4) or (regime == 1 and macro_rho < -0.4) ? 0.35 : 0.40
+
+// V4.7: Quick-Loss (Inertia Failure)
+// If within the first 6 bars, price is underwater and phi (energy) drops below 30% of its average.
+var int bars_since_entry = 0
+if trade_state[1] != 0
+    bars_since_entry += 1
+else
+    bars_since_entry := 0
+
+float phi_avg = ta.ema(phi, lookback_c)
+bool ql_long  = trade_state[1] == 1 and bars_since_entry > 0 and bars_since_entry <= 6 and close < entry_price and phi < phi_avg * 0.3
+bool ql_short = trade_state[1] == -1 and bars_since_entry > 0 and bars_since_entry <= 6 and close > entry_price and phi < phi_avg * 0.3
+bool inertia_failure = ql_long or ql_short
+
+// V4.5 Audit: Structural override now also protects against mild correlation decay
+// V4.7: Hurst exit now also respects the exit_buffer (structural coherence)
+bool cond_exit_long  = trade_state[1] == 1 and ((regime == 3 and not trend_is_dom and exit_buffer > 0) or (risk_reversal and not trend_is_dom and exit_buffer > 0) or (rho < -0.3 and exit_buffer > 0) or (hurst < h_exit_thr and exit_buffer > 0) or inertia_failure)
+bool cond_exit_short = trade_state[1] == -1 and ((regime == 3 and not trend_is_dom and exit_buffer > 0) or (risk_reversal and not trend_is_dom and exit_buffer > 0) or (rho > 0.3 and exit_buffer > 0) or (hurst < h_exit_thr and exit_buffer > 0) or inertia_failure)
+
+bool buy_sig  = false
+bool sell_sig = false
+bool exit_l   = false
+bool exit_s   = false
+
+if trade_state == 1 and cond_exit_long
+    trade_state := 0
+    exit_l := true
+if trade_state == -1 and cond_exit_short
+    trade_state := 0
+    exit_s := true
+
+// Reset variables if position closed via regime change or exhaustion
+if trade_state == 0 and trade_state[1] != 0
+    entry_price := na
+    stop_loss := na
+    target_p1_var := na
+    tp1_hit := false
+    tp2_hit := false
+
+if trade_state == 0
+    if cond_buy
+        trade_state := 1, buy_sig := true
+        entry_price := close
+        stop_loss := close - (atr * 2.0)
+        tp1_hit := false
+        tp2_hit := false
+        // Safety check: P1 must be above entry for Long
+        target_p1_var := math.max(entry_price, entry_price + (math.abs(entry_price - stop_loss) * tp1_mult))
+    else if cond_sell
+        trade_state := -1, sell_sig := true
+        entry_price := close
+        stop_loss := close + (atr * 2.0)
+        tp1_hit := false
+        tp2_hit := false
+        // Safety check: P1 must be below entry for Short
+        target_p1_var := math.min(entry_price, entry_price - (math.abs(entry_price - stop_loss) * tp1_mult))
+
+// PMPT Calculations (Global Scope to maintain ta.* buffers)
+z_torque = get_z(torque, norm_len)
+tp2_thr  = tp2_torque_z * m_pmpt
+
+inertia_trail_long  = ta.ema(low, tau) - (inertia * trail_inertia_mult)
+inertia_trail_short = ta.ema(high, tau) + (inertia * trail_inertia_mult)
+
+bool p1_trigger = false
+bool p2_trigger = false
+bool be_trigger = false
+var float active_trail = na
+
+if trade_state == 1
+    if not tp1_hit and high >= target_p1_var
+        tp1_hit := true
+        p1_trigger := true
+        stop_loss := entry_price // Breakeven
+        be_trigger := true
+
+    if tp1_hit and not tp2_hit and z_torque > tp2_thr
+        tp2_hit := true
+        p2_trigger := true
+
+    active_trail := na(active_trail[1]) ? inertia_trail_long : math.max(active_trail[1], inertia_trail_long)
+    if (not na(stop_loss) and low < stop_loss) or (not na(active_trail) and low < active_trail)
+        trade_state := 0
+        exit_l := true
+        active_trail := na
+        target_p1_var := na
+        stop_loss := na
+        entry_price := na
+        tp1_hit := false
+        tp2_hit := false
+
+else if trade_state == -1
+    if not tp1_hit and low <= target_p1_var
+        tp1_hit := true
+        p1_trigger := true
+        stop_loss := entry_price // Breakeven
+        be_trigger := true
+
+    if tp1_hit and not tp2_hit and z_torque > tp2_thr
+        tp2_hit := true
+        p2_trigger := true
+
+    active_trail := na(active_trail[1]) ? inertia_trail_short : math.min(active_trail[1], inertia_trail_short)
+    if (not na(stop_loss) and high > stop_loss) or (not na(active_trail) and high > active_trail)
+        trade_state := 0
+        exit_s := true
+        active_trail := na
+        target_p1_var := na
+        stop_loss := na
+        entry_price := na
+        tp1_hit := false
+        tp2_hit := false
+else
+    active_trail := na
+
+// ==========================================
+// 6. Visual System
+// ==========================================
+color c_bull  = color.new(color.green, 85)
+color c_bear  = color.new(color.red, 85)
+color c_comp  = color.new(color.blue, 85)
+color c_exh   = color.new(color.orange, 85)
+color c_chaos = color.new(color.purple, 85)
+
+color regime_color = regime == 0 ? c_bull : regime == 1 ? c_bear : regime == 2 ? c_comp : regime == 3 ? c_exh : c_chaos
+bgcolor(regime_color)
+
+color body_color = regime == 0 ? color.new(color.green, 30) : regime == 1 ? color.new(color.red, 30) : regime == 2 ? color.new(color.blue, 30) : regime == 3 ? color.new(color.orange, 30) : color.new(color.purple, 30)
+color edge_color = v > 0 ? color.lime : color.maroon
+plotcandle(use_phys_candles ? open : na, high, low, close, title="MPRM Candles", color=body_color, wickcolor=edge_color, bordercolor=edge_color)
+
+// V4.6: Moved table declaration back to global scope with var,
+// but updates remain in barstate.islast for visibility consistency across all assets.
+var table info = table.new(position.top_right, 2, 15, bgcolor=color.new(color.black, table_transp), border_width=1, border_color=color.gray)
+
+if barstate.islast
+    table.cell(info, 0, 0, syminfo.ticker, text_color=color.white, bgcolor=regime_color)
+    table.cell(info, 1, 0, "MPRM " + profile_input, text_color=color.white, bgcolor=regime_color)
+
+    table.cell(info, 0, 1, "Regime", text_color=color.white)
+    table.cell(info, 1, 1, get_n(regime), text_color=color.white, bgcolor=regime_color)
+
+    pos_txt = trade_state == 1 ? "LONG" : trade_state == -1 ? "SHORT" : "FLAT"
+    pos_col = trade_state == 1 ? color.lime : trade_state == -1 ? color.red : color.gray
+    table.cell(info, 0, 2, "Position", text_color=color.white)
+    table.cell(info, 1, 2, pos_txt, text_color=color.white, bgcolor=pos_col)
+
+    if trade_state != 0
+        bool is_be = math.abs(entry_price - stop_loss) < (entry_price * 0.00001)
+        table.cell(info, 0, 3, is_be ? "Breakeven" : "Entry / Stop", text_color=color.white)
+        table.cell(info, 1, 3, is_be ? str.tostring(entry_price, format.mintick) : (str.tostring(entry_price, format.mintick) + " / " + str.tostring(stop_loss, format.mintick)), text_color=color.white)
+        table.cell(info, 0, 4, "P1 Target", text_color=color.white)
+        table.cell(info, 1, 4, str.tostring(target_p1_var, format.mintick), text_color=tp1_hit ? color.gray : color.yellow)
+        table.cell(info, 0, 5, "P2 Torque", text_color=color.white)
+        table.cell(info, 1, 5, str.tostring(nz(z_torque), "#.##") + " / " + str.tostring(nz(tp2_thr), "#.##"), text_color=tp2_hit ? color.gray : color.orange)
+        table.cell(info, 0, 6, "Trail", text_color=color.white)
+        table.cell(info, 1, 6, str.tostring(active_trail, format.mintick), text_color=color.aqua)
+
+    // Hurst Classification
+    h_txt = hurst > 0.75 ? "EXTREME" : hurst > 0.52 ? "PERSIST" : hurst >= 0.48 ? "RANDOM" : hurst >= 0.40 ? "CONSOL" : "REVERT"
+    h_col = hurst > 0.52 ? color.lime : hurst < 0.40 ? color.fuchsia : hurst < 0.48 ? color.aqua : color.white
+    table.cell(info, 0, 7, "Hurst", text_color=color.white)
+    table.cell(info, 1, 7, h_txt + " (" + str.tostring(nz(hurst), "#.##") + ")", text_color=h_col)
+
+    // Markov Prediction Logic
+    float m_val = -1.0
+    int m_idx = -1
+    for i = 0 to 4
+        if i == regime // We look for the next likely change
+            continue
+        val = array.get(transitions, regime * 5 + i)
+        if val > m_val
+            m_val := val
+            m_idx := i
+
+    // Calculate probability for the next likely state
+    float sum_next = 0.0
+    for i = 0 to 4
+        sum_next += array.get(transitions, regime * 5 + i)
+    sum_next := math.max(sum_next, 1.0)
+    p_next = m_idx != -1 ? (array.get(transitions, regime * 5 + m_idx) / sum_next) : 0.0
+
+    table.cell(info, 0, 8, "Next Likely", text_color=color.white)
+    table.cell(info, 1, 8, (m_idx == -1 ? "N/A" : get_n(m_idx)) + " (" + str.tostring(nz(p_next) * 100, "##") + "%)", text_color=color.yellow)
+
+    table.cell(info, 0, 9, "Stay Prob.", text_color=color.white)
+    table.cell(info, 1, 9, str.tostring(nz(p_stay) * 100, "##") + "%", text_color=color.aqua)
+
+// V4.7: Fixed CE10123 - plotshape text must be a constant string.
+// We use multiple plotshape calls with conditional visibility for conviction levels.
+plotshape(buy_sig and hurst > 0.55, "🚀BUY", shape.triangleup, location.belowbar, color.lime, size=size.small, text="🚀BUY", display=display.all - display.status_line)
+plotshape(buy_sig and (hurst <= 0.55 and hurst >= 0.47), "BUY", shape.triangleup, location.belowbar, color.lime, size=size.small, text="BUY", display=display.all - display.status_line)
+plotshape(buy_sig and hurst < 0.47, "⚠️BUY", shape.triangleup, location.belowbar, color.lime, size=size.small, text="⚠️BUY", display=display.all - display.status_line)
+
+plotshape(sell_sig and hurst > 0.55, "🚀SELL", shape.triangledown, location=location.abovebar, color=color.red, size=size.small, text="🚀SELL", display=display.all - display.status_line)
+plotshape(sell_sig and (hurst <= 0.55 and hurst >= 0.47), "SELL", shape.triangledown, location=location.abovebar, color=color.red, size=size.small, text="SELL", display=display.all - display.status_line)
+plotshape(sell_sig and hurst < 0.47, "⚠️SELL", shape.triangledown, location=location.abovebar, color=color.red, size=size.small, text="⚠️SELL", display=display.all - display.status_line)
+plotshape(exit_l, "EXIT LONG", shape.xcross, location.abovebar, color.lime, size=size.small, text="EXIT", display=display.all - display.status_line)
+plotshape(exit_s, "EXIT SHORT", shape.xcross, location.belowbar, color.red, size=size.small, text="EXIT", display=display.all - display.status_line)
+plotshape(inertia_failure, "QUICK LOSS", shape.labeldown, location.abovebar, color.maroon, size=size.small, text="QL", textcolor=color.white, display=display.all - display.status_line)
+
+plotshape(p1_trigger, "P1", shape.circle, location.abovebar, color.yellow, size=size.small, text="P1", display=display.all - display.status_line)
+plotshape(p2_trigger, "P2", shape.circle, location.abovebar, color.orange, size=size.small, text="P2", display=display.all - display.status_line)
+plotshape(be_trigger, "BE", shape.labelup, location.belowbar, color.gray, size=size.small, text="BE", textcolor=color.white, display=display.all - display.status_line)
+
+plot(active_trail, "Inertia Trail", color=color.new(color.gray, 50), style=plot.style_linebr)
+
+// Hurst Data Window Plots (Invisible on price chart due to scale, but visible in Data Window)
+plot(hurst, "Hurst Exponent", color=color.new(color.gray, 100), display=display.data_window)
+plot(ta.ema(hurst, 10), "Hurst EMA", color=color.new(color.aqua, 100), display=display.data_window)
+
+// Hide internal physics from status line to declutter
+plot(phi, "Energy (Phi)", display=display.none)
+plot(rho, "Correlation (Rho)", display=display.none)
+plot(v, "Velocity (v)", display=display.none)
+plot(a, "Acceleration (a)", display=display.none)
+plot(j, "Jerk (j)", display=display.none)
+plot(torque, "Torque", display=display.none)
+
+if bar_index > 0
+    // Decay all transition counts to prioritize recent regime changes
+    if markov_decay < 1.0
+        for i = 0 to 24
+            array.set(transitions, i, array.get(transitions, i) * markov_decay)
+
+    idx = nz(regime[1], 4) * 5 + regime
+    array.set(transitions, idx, array.get(transitions, idx) + 1.0)
