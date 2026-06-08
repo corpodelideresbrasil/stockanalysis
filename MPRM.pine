@@ -209,6 +209,15 @@ if trade_state == 1 and cond_exit_long
 if trade_state == -1 and cond_exit_short
     trade_state := 0
     exit_s := true
+
+// Reset variables if position closed via regime change or exhaustion
+if trade_state == 0 and trade_state[1] != 0
+    entry_price := na
+    stop_loss := na
+    target_p1_var := na
+    tp1_hit := false
+    tp2_hit := false
+
 if trade_state == 0
     if cond_buy
         trade_state := 1, buy_sig := true
@@ -216,14 +225,16 @@ if trade_state == 0
         stop_loss := close - (atr * 2.0)
         tp1_hit := false
         tp2_hit := false
-        target_p1_var := entry_price + (math.abs(entry_price - stop_loss) * tp1_mult)
+        // Safety check: P1 must be above entry for Long
+        target_p1_var := math.max(entry_price, entry_price + (math.abs(entry_price - stop_loss) * tp1_mult))
     else if cond_sell
         trade_state := -1, sell_sig := true
         entry_price := close
         stop_loss := close + (atr * 2.0)
         tp1_hit := false
         tp2_hit := false
-        target_p1_var := entry_price - (math.abs(entry_price - stop_loss) * tp1_mult)
+        // Safety check: P1 must be below entry for Short
+        target_p1_var := math.min(entry_price, entry_price - (math.abs(entry_price - stop_loss) * tp1_mult))
 
 // PMPT Calculations (Global Scope to maintain ta.* buffers)
 z_torque = get_z(torque, norm_len)
@@ -254,8 +265,10 @@ if trade_state == 1
         exit_l := true
         active_trail := na
         target_p1_var := na
-        stop_loss := 0.0
-        entry_price := 0.0
+        stop_loss := na
+        entry_price := na
+        tp1_hit := false
+        tp2_hit := false
 
 else if trade_state == -1
     if not tp1_hit and low <= target_p1_var
@@ -274,8 +287,10 @@ else if trade_state == -1
         exit_s := true
         active_trail := na
         target_p1_var := na
-        stop_loss := 0.0
-        entry_price := 0.0
+        stop_loss := na
+        entry_price := na
+        tp1_hit := false
+        tp2_hit := false
 else
     active_trail := na
 
@@ -314,13 +329,13 @@ if barstate.islast
     if trade_state != 0
         bool is_be = math.abs(entry_price - stop_loss) < (entry_price * 0.00001)
         table.cell(info, 0, 3, is_be ? "Breakeven" : "Entry / Stop", text_color=color.white)
-        table.cell(info, 1, 3, is_be ? str.tostring(entry_price, "#.##") : (str.tostring(entry_price, "#.##") + " / " + str.tostring(stop_loss, "#.##")), text_color=color.white)
+        table.cell(info, 1, 3, is_be ? str.tostring(entry_price, format.mintick) : (str.tostring(entry_price, format.mintick) + " / " + str.tostring(stop_loss, format.mintick)), text_color=color.white)
         table.cell(info, 0, 4, "P1 Target", text_color=color.white)
-        table.cell(info, 1, 4, str.tostring(target_p1_var, "#.##"), text_color=tp1_hit ? color.gray : color.yellow)
+        table.cell(info, 1, 4, str.tostring(target_p1_var, format.mintick), text_color=tp1_hit ? color.gray : color.yellow)
         table.cell(info, 0, 5, "P2 Torque", text_color=color.white)
         table.cell(info, 1, 5, str.tostring(nz(z_torque), "#.##") + " / " + str.tostring(nz(tp2_thr), "#.##"), text_color=tp2_hit ? color.gray : color.orange)
         table.cell(info, 0, 6, "Trail", text_color=color.white)
-        table.cell(info, 1, 6, str.tostring(nz(active_trail), "#.##"), text_color=color.aqua)
+        table.cell(info, 1, 6, str.tostring(active_trail, format.mintick), text_color=color.aqua)
 
     // Hurst Classification
     h_txt = hurst > 0.75 ? "EXTREME" : hurst > 0.52 ? "PERSIST" : hurst >= 0.48 ? "RANDOM" : hurst >= 0.40 ? "CONSOL" : "REVERT"
