@@ -25,11 +25,13 @@ O gráfico utiliza um sistema de cores duplo (Fundo e Candles) para que você nu
 
 ## 2. Guia de Operação (Passo a Passo)
 
-### Passo 1: A Entrada (Quando comprar ou vender)
-Não tente adivinhar. Espere o sinal visual:
-1.  **Sinal Visual:** Procure pelo **Triângulo Verde (BUY)** ou **Triângulo Vermelho (SELL)** abaixo/acima das barras.
-2.  **Filtro de Convicção:** Na V4.7, os triângulos só aparecem se o **Hurst** for superior a 0.50. Isso significa que **todo sinal que aparece no gráfico já é de alta convicção.** Você não precisa mais conferir o Hurst manualmente.
-3.  **Ação:** Entre no fechamento do candle do sinal. O dashboard mostrará seu **Entry Price** e o **Stop Loss** sugerido.
+### Passo 1: A Entrada (Sinais e Convicção)
+Não tente adivinhar. O sistema mostra triângulos de **BUY** ou **SELL** sempre que um novo regime de tendência começa.
+
+**Como ler a convicção do sinal:**
+*   🚀 **Foguete (Ex: 🚀BUY):** Alta Convicção. O Hurst está acima de 0.55. A tendência tem "memória" e força para continuar.
+*   **Sinal Padrão (Ex: BUY):** Convicção Normal. Hurst entre 0.47 e 0.55.
+*   ⚠️ **Alerta (Ex: ⚠️BUY):** Baixa Convicção. Hurst abaixo de 0.47. O sinal é baseado apenas em momentum de curto prazo e pode falhar se a energia não entrar rápido.
 
 ### Passo 2: Gestão da Posição (O lucro automático)
 O sistema usa o método **PMPT** (Realização Mecânica):
@@ -49,34 +51,28 @@ Saia totalmente da operação se:
 
 ### Ainda dá tempo de entrar?
 Se você abriu o gráfico e o fundo já está **Verde** ou **Vermelho**, mas você perdeu o triângulo inicial:
-*   **Regra de Ouro:** Só entre se o preço ainda estiver **perto do Entry Price** mostrado no dashboard e se o **P1 Target ainda não tiver sido atingido**.
-*   Se o dashboard já mostrar que o **P1 ou P2 já foram atingidos**, a operação já está "madura" demais. Esperar por um novo ciclo (fundo Roxo ou Azul antes de um novo Verde/Vermelho) é mais seguro.
+*   **Atenção:** Se o sinal inicial tiver um **Foguete (🚀)**, a tendência é forte e você tem mais segurança para entrar "atrasado".
+*   **Regra de Segurança:** Só entre se o preço ainda estiver perto do **Entry Price** mostrado no dashboard e se o **P1 Target** ainda não tiver sido atingido. Se o P1 já foi batido, a operação já deu o lucro principal e o risco de correção é alto.
 
-### O que significa "CRYPTO / EQUITIES / INDICES" no cabeçalho?
-É o **Perfil de Física** (Physics Profile) selecionado nas configurações.
-*   **CRYPTO:** O sistema fica mais "elástico" para aguentar a volatilidade das criptomoedas sem dar saídas falsas.
-*   **EQUITIES:** Calibrado para o mercado de ações (B3 / NYSE).
-*   **INDICES:** Calibrado para movimentos pesados e institucionais (S&P500, Ibovespa).
-*   **Sempre confira se o perfil no dashboard combina com o ativo que você está operando.**
+### O que significa "CRYPTO / EQUITIES / INDICES" na linha do indicador?
+Este é o **Perfil de Física** (Physics Profile) ativo. O modelo ajusta seus cálculos de inércia e energia dependendo da "viscosidade" do mercado:
+*   **CRYPTO:** Para ativos altamente voláteis.
+*   **EQUITIES:** Para ações (B3, NYSE).
+*   **INDICES:** Para mercados mais pesados (S&P500, IBOV).
+*   Você pode mudar isso nas configurações do indicador em **Asset Physics Profile**.
 
 ---
 
-## 4. Dicas de Otimização (Como ser um expert)
+## 4. Dicas de Otimização
 
-O Passo 4 de otimização serve para ajustar o sistema ao seu perfil de risco e ao ativo que você opera.
-
-### Quando e como ajustar?
-1.  **Ativos muito "nervosos" (Cripto):**
-    *   Se você notar muitos sinais falsos de exaustão (Laranja) que logo voltam a ficar Verde, aumente o **Trend Hysteresis** para 0.15 ou 0.20 nas configurações. Isso dá mais "espaço" para a tendência respirar.
-2.  **Ativos Direcionais (Ações Blue Chips):**
-    *   Se a tendência for muito forte (Coerência > 0.90 no dashboard), você pode ignorar sinais de saída por exaustão e esperar o **Inertia Trail** ser atingido. Isso maximiza o lucro em grandes tendências (como NVIDIA ou AAPL).
-3.  **Uso do Filtro de Markov:**
-    *   Mantenha o **Use Markov Transition Filter** ligado. Ele evita que o sistema mude de ideia a cada pequena oscilação, exigindo uma "prova estatística" antes de mudar a cor do fundo.
+### Quando ajustar a sensibilidade?
+*   Se o mercado estiver muito lateral e dando muitos sinais de **⚠️ Alerta**, aumente o **Trend Hysteresis** para 0.12 ou mais. Isso filtrará os sinais mais fracos.
+*   Mantenha o **Use Markov Transition Filter** sempre ligado para garantir que as mudanças de cor do fundo tenham base estatística.
 
 ---
 
 ## 5. Legenda Rápida de Avisos
-*   **( ! ) Desaceleração:** O preço sobe, mas o "combustível" está acabando. Atenção.
-*   **( D ) Divergência:** O preço fez máxima nova, mas a energia não acompanhou. Perigo de topo.
-*   **( !! ) Risco de Reversão:** Alerta máximo. Quase sempre precede uma mudança de cor para Laranja ou Roxo.
-*   **QL (Quick Loss):** Proteção de emergência. A inércia falhou logo após a compra.
+*   **( ! ) Desaceleração:** O combustível do movimento está acabando.
+*   **( D ) Divergência:** Preço subiu, mas a energia caiu. Cuidado com o topo.
+*   **( !! ) Risco de Reversão:** Alerta crítico de exaustão iminente.
+*   **QL (Quick Loss):** Saída de emergência por colapso de energia.

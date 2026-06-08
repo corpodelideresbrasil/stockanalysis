@@ -5,6 +5,7 @@
 indicator("Market Physics Regime Model", shorttitle="MPRM V4.7", overlay=true, max_labels_count=500)
 
 // Declutter Indicator Status Line
+// Use plot(na, ...) to keep labels available for table/data window without cluttering the status bar
 plot(na, "--- Physics Indicators ---", display=display.none)
 // Force calculation on all bars to ensure ta.* buffers are healthy
 // before the final table render.
@@ -218,7 +219,7 @@ if trade_state == 0 and trade_state[1] != 0
     tp2_hit := false
 
 if trade_state == 0
-    if cond_buy and hurst > 0.50
+    if cond_buy
         trade_state := 1, buy_sig := true
         entry_price := close
         stop_loss := close - (atr * 2.0)
@@ -226,7 +227,7 @@ if trade_state == 0
         tp2_hit := false
         // Safety check: P1 must be above entry for Long
         target_p1_var := math.max(entry_price, entry_price + (math.abs(entry_price - stop_loss) * tp1_mult))
-    else if cond_sell and hurst > 0.50
+    else if cond_sell
         trade_state := -1, sell_sig := true
         entry_price := close
         stop_loss := close + (atr * 2.0)
@@ -366,15 +367,18 @@ if barstate.islast
     table.cell(info, 0, 9, "Stay Prob.", text_color=color.white)
     table.cell(info, 1, 9, str.tostring(nz(p_stay) * 100, "##") + "%", text_color=color.aqua)
 
-plotshape(buy_sig, "BUY", shape.triangleup, location.belowbar, color.lime, size=size.small, text="BUY")
-plotshape(sell_sig, "SELL", shape.triangledown, location=location.abovebar, color=color.red, size=size.small, text="SELL")
-plotshape(exit_l, "EXIT LONG", shape.xcross, location.abovebar, color.lime, size=size.small, text="EXIT")
-plotshape(exit_s, "EXIT SHORT", shape.xcross, location.belowbar, color.red, size=size.small, text="EXIT")
-plotshape(inertia_failure, "QUICK LOSS", shape.labeldown, location.abovebar, color.maroon, size=size.small, text="QL", textcolor=color.white)
+buy_txt  = hurst > 0.55 ? "🚀BUY" : (hurst < 0.47 ? "⚠️BUY" : "BUY")
+sell_txt = hurst > 0.55 ? "🚀SELL" : (hurst < 0.47 ? "⚠️SELL" : "SELL")
+// V4.7: Hide operational shapes from status line but keep on chart
+plotshape(buy_sig, "BUY", shape.triangleup, location.belowbar, color.lime, size=size.small, text=buy_txt, display=display.all - display.status_line)
+plotshape(sell_sig, "SELL", shape.triangledown, location=location.abovebar, color=color.red, size=size.small, text=sell_txt, display=display.all - display.status_line)
+plotshape(exit_l, "EXIT LONG", shape.xcross, location.abovebar, color.lime, size=size.small, text="EXIT", display=display.all - display.status_line)
+plotshape(exit_s, "EXIT SHORT", shape.xcross, location.belowbar, color.red, size=size.small, text="EXIT", display=display.all - display.status_line)
+plotshape(inertia_failure, "QUICK LOSS", shape.labeldown, location.abovebar, color.maroon, size=size.small, text="QL", textcolor=color.white, display=display.all - display.status_line)
 
-plotshape(p1_trigger, "P1", shape.circle, location.abovebar, color.yellow, size=size.small, text="P1")
-plotshape(p2_trigger, "P2", shape.circle, location.abovebar, color.orange, size=size.small, text="P2")
-plotshape(be_trigger, "BE", shape.labelup, location.belowbar, color.gray, size=size.small, text="BE", textcolor=color.white)
+plotshape(p1_trigger, "P1", shape.circle, location.abovebar, color.yellow, size=size.small, text="P1", display=display.all - display.status_line)
+plotshape(p2_trigger, "P2", shape.circle, location.abovebar, color.orange, size=size.small, text="P2", display=display.all - display.status_line)
+plotshape(be_trigger, "BE", shape.labelup, location.belowbar, color.gray, size=size.small, text="BE", textcolor=color.white, display=display.all - display.status_line)
 
 plot(active_trail, "Inertia Trail", color=color.new(color.gray, 50), style=plot.style_linebr)
 
