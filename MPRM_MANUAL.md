@@ -1,4 +1,4 @@
-# Manual do Usuário: Market Physics Regime Model (MPRM) V4.2 (Versão Pine V6)
+# Manual do Usuário: Market Physics Regime Model (MPRM) V4.3 (Versão Pine V6)
 
 O MPRM é um sistema físico-estocástico projetado para identificar regimes de mercado através de analogias com a mecânica clássica e termodinâmica. Em vez de utilizar indicadores técnicos tradicionais, o MPRM modela o preço como um corpo em movimento sujeito a forças de inércia, aceleração e coerência estrutural.
 
@@ -53,6 +53,12 @@ O MPRM V3.3 inclui uma camada operacional explícita para facilitar a tomada de 
     2.  Surge um **Risco de Reversão** (‼) severo (combinação de exaustão, desaceleração e divergência).
     3.  O regime de tendência se inverte (ex: de BULL para BEAR) **E** a direção estrutural ($\rho$) confirma a inversão.
     4.  **Energy Collapse:** Queda significativa da energia estrutural em relação à média histórica, sem proteção do macro filtro.
+
+**Novidade V4.3 (Physical-Mechanical Profit Taking - PMPT):**
+*   **Gestão de Energia da Posição:** O sistema agora trata o lucro como energia que deve ser dissipada (realizada) para evitar o colapso térmico da posição (devolver o lucro).
+*   **P1 - Recuperação de Custo (50%):** Saída automática de 50% ao atingir 1.5x o risco inicial. O Stop Loss é movido para o preço de entrada (**Breakeven - BE**), garantindo que a operação não resulte mais em prejuízo.
+*   **P2 - Exaustão de Torque (25%):** Saída de mais 25% quando o **Torque Estrutural ($\tau$)** atinge um extremo estatístico (Z-Score > 2.0). Captura topos/fundos de exaustão antes da reversão.
+*   **Inertia-Trailing Floor (25%):** A parcela final da posição é protegida por um "chão de inércia" móvel. O stop segue a `EMA(preço) - (Inércia * Multiplicador)`, permitindo capturar o "rabicho" de grandes tendências.
 
 **Novidade V4.2 (Macro-Aware Hurst Exit):**
 *   **Gatilho Hurst Dinâmico:** Para evitar saídas prematuras em tendências "monstruosas" (como TRON ou BTC), o limite de saída por Hurst agora é dinâmico. Se o filtro macro (`macro_rho`) confirmar uma tendência forte (> 0.4), o sistema permite que o Hurst caia até **0.35** antes de encerrar a posição, permitindo que o ativo "respire" sem disparar o botão de pânico.
