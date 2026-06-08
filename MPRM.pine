@@ -367,11 +367,15 @@ if barstate.islast
     table.cell(info, 0, 9, "Stay Prob.", text_color=color.white)
     table.cell(info, 1, 9, str.tostring(nz(p_stay) * 100, "##") + "%", text_color=color.aqua)
 
-buy_txt  = hurst > 0.55 ? "🚀BUY" : (hurst < 0.47 ? "⚠️BUY" : "BUY")
-sell_txt = hurst > 0.55 ? "🚀SELL" : (hurst < 0.47 ? "⚠️SELL" : "SELL")
-// V4.7: Hide operational shapes from status line but keep on chart
-plotshape(buy_sig, "BUY", shape.triangleup, location.belowbar, color.lime, size=size.small, text=buy_txt, display=display.all - display.status_line)
-plotshape(sell_sig, "SELL", shape.triangledown, location=location.abovebar, color=color.red, size=size.small, text=sell_txt, display=display.all - display.status_line)
+// V4.7: Fixed CE10123 - plotshape text must be a constant string.
+// We use multiple plotshape calls with conditional visibility for conviction levels.
+plotshape(buy_sig and hurst > 0.55, "🚀BUY", shape.triangleup, location.belowbar, color.lime, size=size.small, text="🚀BUY", display=display.all - display.status_line)
+plotshape(buy_sig and (hurst <= 0.55 and hurst >= 0.47), "BUY", shape.triangleup, location.belowbar, color.lime, size=size.small, text="BUY", display=display.all - display.status_line)
+plotshape(buy_sig and hurst < 0.47, "⚠️BUY", shape.triangleup, location.belowbar, color.lime, size=size.small, text="⚠️BUY", display=display.all - display.status_line)
+
+plotshape(sell_sig and hurst > 0.55, "🚀SELL", shape.triangledown, location=location.abovebar, color=color.red, size=size.small, text="🚀SELL", display=display.all - display.status_line)
+plotshape(sell_sig and (hurst <= 0.55 and hurst >= 0.47), "SELL", shape.triangledown, location=location.abovebar, color=color.red, size=size.small, text="SELL", display=display.all - display.status_line)
+plotshape(sell_sig and hurst < 0.47, "⚠️SELL", shape.triangledown, location=location.abovebar, color=color.red, size=size.small, text="⚠️SELL", display=display.all - display.status_line)
 plotshape(exit_l, "EXIT LONG", shape.xcross, location.abovebar, color.lime, size=size.small, text="EXIT", display=display.all - display.status_line)
 plotshape(exit_s, "EXIT SHORT", shape.xcross, location.belowbar, color.red, size=size.small, text="EXIT", display=display.all - display.status_line)
 plotshape(inertia_failure, "QUICK LOSS", shape.labeldown, location.abovebar, color.maroon, size=size.small, text="QL", textcolor=color.white, display=display.all - display.status_line)
