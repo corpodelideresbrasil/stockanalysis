@@ -4,9 +4,8 @@
 //@version=6
 indicator("Market Physics Regime Model", shorttitle="MPRM V4.7", overlay=true, max_labels_count=500)
 
-// ==========================================
-// 0. Safety & Optimization
-// ==========================================
+// Declutter Indicator Status Line
+plot(na, "--- Physics Indicators ---", display=display.none)
 // Force calculation on all bars to ensure ta.* buffers are healthy
 // before the final table render.
 // 1. Enums & Inputs
@@ -219,7 +218,7 @@ if trade_state == 0 and trade_state[1] != 0
     tp2_hit := false
 
 if trade_state == 0
-    if cond_buy
+    if cond_buy and hurst > 0.50
         trade_state := 1, buy_sig := true
         entry_price := close
         stop_loss := close - (atr * 2.0)
@@ -227,7 +226,7 @@ if trade_state == 0
         tp2_hit := false
         // Safety check: P1 must be above entry for Long
         target_p1_var := math.max(entry_price, entry_price + (math.abs(entry_price - stop_loss) * tp1_mult))
-    else if cond_sell
+    else if cond_sell and hurst > 0.50
         trade_state := -1, sell_sig := true
         entry_price := close
         stop_loss := close + (atr * 2.0)
@@ -382,6 +381,14 @@ plot(active_trail, "Inertia Trail", color=color.new(color.gray, 50), style=plot.
 // Hurst Data Window Plots (Invisible on price chart due to scale, but visible in Data Window)
 plot(hurst, "Hurst Exponent", color=color.new(color.gray, 100), display=display.data_window)
 plot(ta.ema(hurst, 10), "Hurst EMA", color=color.new(color.aqua, 100), display=display.data_window)
+
+// Hide internal physics from status line to declutter
+plot(phi, "Energy (Phi)", display=display.none)
+plot(rho, "Correlation (Rho)", display=display.none)
+plot(v, "Velocity (v)", display=display.none)
+plot(a, "Acceleration (a)", display=display.none)
+plot(j, "Jerk (j)", display=display.none)
+plot(torque, "Torque", display=display.none)
 
 if bar_index > 0
     // Decay all transition counts to prioritize recent regime changes

@@ -28,9 +28,7 @@ O gráfico utiliza um sistema de cores duplo (Fundo e Candles) para que você nu
 ### Passo 1: A Entrada (Quando comprar ou vender)
 Não tente adivinhar. Espere o sinal visual:
 1.  **Sinal Visual:** Procure pelo **Triângulo Verde (BUY)** ou **Triângulo Vermelho (SELL)** abaixo/acima das barras.
-2.  **Confirmação no Dashboard:** Olhe para o painel no canto superior direito.
-    *   O **Hurst** deve estar acima de **0.52** (cor verde ou azul) para uma entrada de alta convicção.
-    *   Se o Hurst estiver abaixo de 0.48, a entrada é arriscada (pode ser um falso rompimento).
+2.  **Filtro de Convicção:** Na V4.7, os triângulos só aparecem se o **Hurst** for superior a 0.50. Isso significa que **todo sinal que aparece no gráfico já é de alta convicção.** Você não precisa mais conferir o Hurst manualmente.
 3.  **Ação:** Entre no fechamento do candle do sinal. O dashboard mostrará seu **Entry Price** e o **Stop Loss** sugerido.
 
 ### Passo 2: Gestão da Posição (O lucro automático)
@@ -47,23 +45,37 @@ Saia totalmente da operação se:
 
 ---
 
-## 3. Dicas de Otimização (Como ser um expert)
+## 3. Perguntas Frequentes (FAQ)
+
+### Ainda dá tempo de entrar?
+Se você abriu o gráfico e o fundo já está **Verde** ou **Vermelho**, mas você perdeu o triângulo inicial:
+*   **Regra de Ouro:** Só entre se o preço ainda estiver **perto do Entry Price** mostrado no dashboard e se o **P1 Target ainda não tiver sido atingido**.
+*   Se o dashboard já mostrar que o **P1 ou P2 já foram atingidos**, a operação já está "madura" demais. Esperar por um novo ciclo (fundo Roxo ou Azul antes de um novo Verde/Vermelho) é mais seguro.
+
+### O que significa "CRYPTO / EQUITIES / INDICES" no cabeçalho?
+É o **Perfil de Física** (Physics Profile) selecionado nas configurações.
+*   **CRYPTO:** O sistema fica mais "elástico" para aguentar a volatilidade das criptomoedas sem dar saídas falsas.
+*   **EQUITIES:** Calibrado para o mercado de ações (B3 / NYSE).
+*   **INDICES:** Calibrado para movimentos pesados e institucionais (S&P500, Ibovespa).
+*   **Sempre confira se o perfil no dashboard combina com o ativo que você está operando.**
+
+---
+
+## 4. Dicas de Otimização (Como ser um expert)
 
 O Passo 4 de otimização serve para ajustar o sistema ao seu perfil de risco e ao ativo que você opera.
 
 ### Quando e como ajustar?
 1.  **Ativos muito "nervosos" (Cripto):**
-    *   Se você notar muitos sinais falsos de exaustão (Laranja) que logo voltam a ficar Verde, aumente o **Trend Hysteresis** para 0.15 ou 0.20. Isso dá mais "espaço" para a tendência respirar.
+    *   Se você notar muitos sinais falsos de exaustão (Laranja) que logo voltam a ficar Verde, aumente o **Trend Hysteresis** para 0.15 ou 0.20 nas configurações. Isso dá mais "espaço" para a tendência respirar.
 2.  **Ativos Direcionais (Ações Blue Chips):**
     *   Se a tendência for muito forte (Coerência > 0.90 no dashboard), você pode ignorar sinais de saída por exaustão e esperar o **Inertia Trail** ser atingido. Isso maximiza o lucro em grandes tendências (como NVIDIA ou AAPL).
 3.  **Uso do Filtro de Markov:**
     *   Mantenha o **Use Markov Transition Filter** ligado. Ele evita que o sistema mude de ideia a cada pequena oscilação, exigindo uma "prova estatística" antes de mudar a cor do fundo.
-4.  **Hurst como Filtro de Qualidade:**
-    *   Se o dashboard mostrar **Hurst: RANDOM**, diminua o tamanho da sua mão. O mercado está sem memória e os sinais têm menos chance de seguir adiante.
 
 ---
 
-## 4. Legenda Rápida de Avisos
+## 5. Legenda Rápida de Avisos
 *   **( ! ) Desaceleração:** O preço sobe, mas o "combustível" está acabando. Atenção.
 *   **( D ) Divergência:** O preço fez máxima nova, mas a energia não acompanhou. Perigo de topo.
 *   **( !! ) Risco de Reversão:** Alerta máximo. Quase sempre precede uma mudança de cor para Laranja ou Roxo.
