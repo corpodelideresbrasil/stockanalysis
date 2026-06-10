@@ -110,8 +110,8 @@ bool enter_long  = pos_state == 1 and pos_state[1] == 0
 bool enter_short = pos_state == -1 and pos_state[1] == 0
 
 // Sinais de Entrada: Setas Grandes e Únicas
-plotshape(enter_long, "ORDEM COMPRA", shape.arrowup, location.belowbar, color.green, size=size.normal, title="Entrada Long")
-plotshape(enter_short, "ORDEM VENDA", shape.arrowdown, location.abovebar, color.red, size=size.normal, title="Entrada Short")
+plotshape(enter_long, "ORDEM COMPRA", shape.arrowup, location.belowbar, color.green, size=size.normal)
+plotshape(enter_short, "ORDEM VENDA", shape.arrowdown, location.abovebar, color.red, size=size.normal)
 
 // Convicção (Apenas se a ordem acabou de abrir)
 plotshape(enter_long and h_val > 0.55, "Alta Convicção Bull", shape.labelup, location.belowbar, color.new(color.green, 100), text="🚀", textcolor=color.green, size=size.tiny)
