@@ -53,13 +53,53 @@ p_bear := (p_bear * markov_decay) + (p_bear_i * (1 - markov_decay))
 p_comp := (p_comp * markov_decay) + (p_comp_i * (1 - markov_decay))
 p_exh  := (p_exh * markov_decay)  + (p_exh_i * (1 - markov_decay))
 
-// --- 3. INERTIAL TRAIL (REGIME VISUAL) ---
+// --- 3. INERTIAL TRAIL & POSITION TRACKING ---
 float max_p = math.max(p_bull, p_bear, p_comp, p_exh)
 int regime = max_p == p_bull ? 0 : max_p == p_bear ? 1 : max_p == p_comp ? 2 : 3
 color regime_col = regime == 0 ? color.green : regime == 1 ? color.red : regime == 2 ? color.blue : color.orange
 
-// Plotagem da Inércia (Inertial Trail)
-plot(close, "Inertial Trail", color=regime_col, linewidth=3, style=plot.style_line)
+// Variáveis de Estado da Posição
+var int pos_state = 0 // 0: Fora, 1: Comprado, -1: Vendido
+var float trail_sl = na
+float atr = ta.atr(14)
+
+// Lógica de Entrada
+if pos_state == 0
+    if regime == 0 // Bull
+        pos_state := 1
+        trail_sl := low - (atr * 1.5)
+    else if regime == 1 // Bear
+        pos_state := -1
+        trail_sl := high + (atr * 1.5)
+
+// Lógica de Manutenção e Saída
+bool exit_long  = false
+bool exit_short = false
+
+if pos_state == 1 // Long
+    // Ajuste dinâmico: aperta o stop se houver exaustão ou compressão
+    // A distância "respira" com 1.5 ATR e "encurta" com 0.7 ATR em sinais de fraqueza
+    float tight_mult = (regime == 3 or regime == 2) ? 0.7 : 1.5
+    float current_sl = low - (atr * tight_mult)
+    trail_sl := na(trail_sl) ? current_sl : math.max(trail_sl, current_sl)
+
+    // Saída por Preço (Stop Hit) ou Reversão de Força (Regime Bear dominante)
+    if close < trail_sl or regime == 1
+        exit_long := true
+        pos_state := 0
+        trail_sl := na
+else if pos_state == -1 // Short
+    float tight_mult = (regime == 3 or regime == 2) ? 0.7 : 1.5
+    float current_sl = high + (atr * tight_mult)
+    trail_sl := na(trail_sl) ? current_sl : math.min(trail_sl, current_sl)
+
+    if close > trail_sl or regime == 0
+        exit_short := true
+        pos_state := 0
+        trail_sl := na
+
+// Plotagem da Inércia (Inertial Trail / Stop Loss)
+plot(trail_sl, "Inertial Trail SL", color=regime_col, linewidth=2, style=plot.style_linebr)
 barcolor(color.new(regime_col, 50))
 
 // --- 3.1 SINAIS DE TRANSIÇÃO E CONVICÇÃO ---
@@ -77,6 +117,10 @@ plotshape(switch_to_bear and h_ema > 0.55, "Venda Alta Convicção", shape.label
 // Baixa Convicção (H < 0.47) - Atenção
 plotshape(switch_to_bull and h_ema < 0.47, "Compra Baixa Convicção", shape.labelup, location.belowbar, color.orange, text="⚠️", textcolor=color.black, size=size.small)
 plotshape(switch_to_bear and h_ema < 0.47, "Venda Baixa Convicção", shape.labeldown, location.abovebar, color.orange, text="⚠️", textcolor=color.black, size=size.small)
+
+// Sinais de Saída (Exit)
+plotshape(exit_long, "Saída Compra", shape.xcross, location.abovebar, color.red, size=size.tiny)
+plotshape(exit_short, "Saída Venda", shape.xcross, location.belowbar, color.green, size=size.tiny)
 
 // --- 4. TABELA HUD ---
 var table hud = table.new(position.top_right, 3, 6, bgcolor=color.new(color.black, 70), border_width=1, border_color=color.gray)
