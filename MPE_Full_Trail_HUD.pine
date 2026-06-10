@@ -62,11 +62,6 @@ float max_p = math.max(p_bull, p_bear, p_comp, p_exh)
 int regime = max_p == p_bull ? 0 : max_p == p_bear ? 1 : max_p == p_comp ? 2 : 3
 color regime_col = regime == 0 ? color.green : regime == 1 ? color.red : regime == 2 ? color.blue : color.orange
 
-// Lógica de Transição (Divergência entre Agora e Inércia)
-float max_i = math.max(p_bull_i, p_bear_i, p_comp_i, p_exh_i)
-int regime_i = max_i == p_bull_i ? 0 : max_i == p_bear_i ? 1 : max_i == p_comp_i ? 2 : 3
-bool is_transition = regime_i != regime
-
 // Variáveis de Estado da Posição
 var int pos_state = 0 // 0: Fora, 1: Comprado, -1: Vendido
 var float trail_sl = na
@@ -132,9 +127,6 @@ plotshape(enter_short and h_val > 0.55, "HIGH PERSISTENCE", shape.labeldown, loc
 plotshape(exit_long, "FORCE BREAK LONG", shape.labeldown, location.abovebar, color.new(color.black, 40), text="⭕", textcolor=color.red, size=size.small)
 plotshape(exit_short, "FORCE BREAK SHORT", shape.labelup, location.belowbar, color.new(color.black, 40), text="⭕", textcolor=color.green, size=size.small)
 
-// Aviso de Transição/Conflito (Visual no Topo)
-plotshape(is_transition, "TRANSITION WARNING", shape.diamond, location.top, color.new(color.yellow, 50), size=size.tiny)
-
 // --- 4. TABELA UNIFICADA (HUD & GAUGE) ---
 var table hud = table.new(position.top_right, 3, 6, bgcolor=color.new(color.black, 70), border_width=1, border_color=color.gray)
 
@@ -154,19 +146,19 @@ if barstate.islast
 
     table.cell(hud, 0, 2, "⚡ BULL", text_color=color.green, text_size=size.small)
     table.cell(hud, 1, 2, str.tostring(p_bull_i * 100, "#.0") + "%", text_color=color.white, text_size=size.small)
-    table.cell(hud, 2, 2, str.tostring(p_bull * 100, "#.0") + "%" + (regime == 0 and is_transition ? " ⚠️" : ""), text_color=color.white, text_size=size.small)
+    table.cell(hud, 2, 2, str.tostring(p_bull * 100, "#.0") + "%", text_color=color.white, text_size=size.small)
 
     table.cell(hud, 0, 3, "🔥 BEAR", text_color=color.red, text_size=size.small)
     table.cell(hud, 1, 3, str.tostring(p_bear_i * 100, "#.0") + "%", text_color=color.white, text_size=size.small)
-    table.cell(hud, 2, 3, str.tostring(p_bear * 100, "#.0") + "%" + (regime == 1 and is_transition ? " ⚠️" : ""), text_color=color.white, text_size=size.small)
+    table.cell(hud, 2, 3, str.tostring(p_bear * 100, "#.0") + "%", text_color=color.white, text_size=size.small)
 
     table.cell(hud, 0, 4, "🌀 COMP", text_color=color.blue, text_size=size.small)
     table.cell(hud, 1, 4, str.tostring(p_comp_i * 100, "#.0") + "%", text_color=color.white, text_size=size.small)
-    table.cell(hud, 2, 4, str.tostring(p_comp * 100, "#.0") + "%" + (regime == 2 and is_transition ? " ⚠️" : ""), text_color=color.white, text_size=size.small)
+    table.cell(hud, 2, 4, str.tostring(p_comp * 100, "#.0") + "%", text_color=color.white, text_size=size.small)
 
     table.cell(hud, 0, 5, "💨 EXH", text_color=color.orange, text_size=size.small)
     table.cell(hud, 1, 5, str.tostring(p_exh_i * 100, "#.0") + "%", text_color=color.white, text_size=size.small)
-    table.cell(hud, 2, 5, str.tostring(p_exh * 100, "#.0") + "%" + (regime == 3 and is_transition ? " ⚠️" : ""), text_color=color.white, text_size=size.small)
+    table.cell(hud, 2, 5, str.tostring(p_exh * 100, "#.0") + "%", text_color=color.white, text_size=size.small)
 
 // --- 6. ALERTAS OPERACIONAIS ---
 alertcondition(enter_long, "Ignição de Compra (BULL)", "Motor BULL ligado. Considere entrada de compra.")
