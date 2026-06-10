@@ -5,7 +5,11 @@
 indicator("MPE Vector NOW - Full Trail & HUD", shorttitle="MPE Full", overlay=true)
 
 // --- 0. CONFIGURAÇÕES E INPUTS ---
-enum AssetProfile { CRYPTO, EQUITIES, INDICES }
+enum AssetProfile
+    CRYPTO
+    EQUITIES
+    INDICES
+
 AssetProfile profile = input.enum(AssetProfile.CRYPTO, "Perfil do Ativo", tooltip="Ajusta a sensibilidade da inércia com base na 'viscosidade' do mercado.")
 
 float markov_decay = switch profile
