@@ -1,0 +1,103 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © raulfernandoferreira
+
+//@version=6
+indicator("MPE Vector NOW - Full Trail & HUD", shorttitle="MPE Full", overlay=true)
+
+// --- 0. CONFIGURAÇÕES E INPUTS ---
+enum AssetProfile { CRYPTO, EQUITIES, INDICES }
+AssetProfile profile = input.enum(AssetProfile.CRYPTO, "Perfil do Ativo", tooltip="Ajusta a sensibilidade da inércia com base na 'viscosidade' do mercado.")
+
+float markov_decay = switch profile
+    AssetProfile.CRYPTO  => 0.85
+    AssetProfile.EQUITIES => 0.95
+    AssetProfile.INDICES  => 0.98
+
+// --- 0.1 CÁLCULO DO HURST EXPONENT (MÉTRICA DE FRACTALIDADE) ---
+get_hurst(len) =>
+    float log_len = math.log(len)
+    float max_high = ta.highest(high, len)
+    float min_low = ta.lowest(low, len)
+    float r = max_high - min_low
+    float s = ta.stdev(close, len)
+    float h = s != 0 ? math.log(r / s) / log_len : 0.5
+    h
+
+float h_val = get_hurst(30)
+float h_ema = ta.ema(h_val, 10)
+
+string h_state = h_ema > 0.55 ? "Trending" : h_ema < 0.45 ? "Mean-Rev" : "Random"
+color h_color = h_ema > 0.55 ? color.aqua : h_ema < 0.45 ? color.fuchsia : color.gray
+
+// --- 1. MÓDULO DE FÍSICA ---
+float body_work = math.abs(close - open)
+float f_bull    = close > open ? body_work : 0.0
+float f_bear    = close < open ? body_work : 0.0
+float f_comp    = math.max(0.0, (nz(high[1] - low[1], high - low) - (high - low)))
+float f_exh     = math.max(high - math.max(open, close), math.min(open, close) - low) > (body_work * 1.2) ? math.max(high - math.max(open, close), math.min(open, close) - low) : 0.0
+
+float total = f_bull + f_bear + f_comp + f_exh
+float p_bull_i = f_bull / (total == 0 ? 1 : total)
+float p_bear_i = f_bear / (total == 0 ? 1 : total)
+float p_comp_i = f_comp / (total == 0 ? 1 : total)
+float p_exh_i  = f_exh  / (total == 0 ? 1 : total)
+
+// --- 2. CADEIA DE MARKOV (INÉRCIA) ---
+var float p_bull = 0.25, var float p_bear = 0.25, var float p_comp = 0.25, var float p_exh = 0.25
+p_bull := (p_bull * markov_decay) + (p_bull_i * (1 - markov_decay))
+p_bear := (p_bear * markov_decay) + (p_bear_i * (1 - markov_decay))
+p_comp := (p_comp * markov_decay) + (p_comp_i * (1 - markov_decay))
+p_exh  := (p_exh * markov_decay)  + (p_exh_i * (1 - markov_decay))
+
+// --- 3. INERTIAL TRAIL (REGIME VISUAL) ---
+float max_p = math.max(p_bull, p_bear, p_comp, p_exh)
+int regime = max_p == p_bull ? 0 : max_p == p_bear ? 1 : max_p == p_comp ? 2 : 3
+color regime_col = regime == 0 ? color.green : regime == 1 ? color.red : regime == 2 ? color.blue : color.orange
+
+// Plotagem da Inércia (Inertial Trail)
+plot(close, "Inertial Trail", color=regime_col, linewidth=3, style=plot.style_line)
+barcolor(color.new(regime_col, 50))
+
+// --- 3.1 SINAIS DE TRANSIÇÃO E CONVICÇÃO ---
+bool switch_to_bull = regime == 0 and regime[1] != 0
+bool switch_to_bear = regime == 1 and regime[1] != 1
+
+// Sinais Padrão (Convictção Normal)
+plotshape(switch_to_bull and (h_ema >= 0.47 and h_ema <= 0.55), "Compra", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(switch_to_bear and (h_ema >= 0.47 and h_ema <= 0.55), "Venda", shape.triangledown, location.abovebar, color.red, size=size.small)
+
+// Alta Convicção (H > 0.55) - Foguete
+plotshape(switch_to_bull and h_ema > 0.55, "Compra Alta Convicção", shape.labelup, location.belowbar, color.green, text="🚀", textcolor=color.white, size=size.small)
+plotshape(switch_to_bear and h_ema > 0.55, "Venda Alta Convicção", shape.labeldown, location.abovebar, color.red, text="🚀", textcolor=color.white, size=size.small)
+
+// Baixa Convicção (H < 0.47) - Atenção
+plotshape(switch_to_bull and h_ema < 0.47, "Compra Baixa Convicção", shape.labelup, location.belowbar, color.orange, text="⚠️", textcolor=color.black, size=size.small)
+plotshape(switch_to_bear and h_ema < 0.47, "Venda Baixa Convicção", shape.labeldown, location.abovebar, color.orange, text="⚠️", textcolor=color.black, size=size.small)
+
+// --- 4. TABELA HUD ---
+var table hud = table.new(position.top_right, 3, 6, bgcolor=color.new(color.black, 70), border_width=1, border_color=color.gray)
+
+if barstate.islast
+    table.cell(hud, 0, 0, "Métrica", text_color=color.white)
+    table.cell(hud, 1, 0, "Valor", text_color=color.white)
+    table.cell(hud, 2, 0, "Estado", text_color=color.white)
+
+    table.cell(hud, 0, 1, "Bull", text_color=color.green)
+    table.cell(hud, 1, 1, str.tostring(p_bull_i * 100, "#.0") + "%", text_color=color.white)
+    table.cell(hud, 2, 1, str.tostring(p_bull * 100, "#.0") + "%", text_color=color.white)
+
+    table.cell(hud, 0, 2, "Bear", text_color=color.red)
+    table.cell(hud, 1, 2, str.tostring(p_bear_i * 100, "#.0") + "%", text_color=color.white)
+    table.cell(hud, 2, 2, str.tostring(p_bear * 100, "#.0") + "%", text_color=color.white)
+
+    table.cell(hud, 0, 3, "Comp", text_color=color.blue)
+    table.cell(hud, 1, 3, str.tostring(p_comp_i * 100, "#.0") + "%", text_color=color.white)
+    table.cell(hud, 2, 3, str.tostring(p_comp * 100, "#.0") + "%", text_color=color.white)
+
+    table.cell(hud, 0, 4, "Exh", text_color=color.orange)
+    table.cell(hud, 1, 4, str.tostring(p_exh_i * 100, "#.0") + "%", text_color=color.white)
+    table.cell(hud, 2, 4, str.tostring(p_exh * 100, "#.0") + "%", text_color=color.white)
+
+    table.cell(hud, 0, 5, "Hurst", text_color=color.white)
+    table.cell(hud, 1, 5, str.tostring(h_ema, "#.##"), text_color=h_color)
+    table.cell(hud, 2, 5, h_state, text_color=h_color)
