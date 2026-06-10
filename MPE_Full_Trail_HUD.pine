@@ -126,7 +126,7 @@ plotshape(exit_short, "FORCE BREAK SHORT", shape.labelup, location.belowbar, col
 
 // --- 4. ENGINE GAUGE (BALANÇO DE FORÇAS EM TEMPO REAL) ---
 // Visualização vertical no canto direito para mostrar o jogo de forças ATUAL.
-var table gauge = table.new(position.right, 2, 4, bgcolor=color.new(color.black, 80), border_width=1, border_color=color.gray)
+var table gauge = table.new(position.middle_right, 2, 4, bgcolor=color.new(color.black, 80), border_width=1, border_color=color.gray)
 
 if barstate.islast
     // Força Bull vs Bear
