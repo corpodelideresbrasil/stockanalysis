@@ -34,19 +34,23 @@ get_hurst(len) =>
     float h = (not na(s) and s > 0 and not na(r) and r > 0) ? math.log(r / s) / log_len : 0.5
     nz(h, 0.5)
 
-float h_val = get_hurst(20)
-string h_state = h_val > 0.55 ? "Trending" : h_val < 0.45 ? "Mean-Rev" : "Random"
+float h_raw = get_hurst(20)
+float h_val = ta.ema(h_raw, 8) // Suavização para estabilidade do HUD
+string h_state = h_val > 0.52 ? "Trending" : h_val < 0.48 ? "Mean-Rev" : "Random"
 
 // --- 1. MÓDULO DE FÍSICA (INSTANTÂNEO) ---
-float v_ma      = ta.sma(volume, 20)
+float v_ma      = ta.ema(volume, 20) // EMA para suavizar picos de volume
 float vol_force = nz(v_ma > 0 ? math.max(0.1, volume / v_ma) : 1.0, 1.0)
-vol_force := math.min(vol_force, 3.0)
+vol_force := math.min(vol_force, 2.5) // Teto levemente reduzido para evitar distorção
 
 float body_work = math.abs(close - open)
+float wicks     = (high - math.max(open, close)) + (math.min(open, close) - low)
+
 float f_bull_i  = nz(close > open ? body_work : 0.0) * vol_force
 float f_bear_i  = nz(close < open ? body_work : 0.0) * vol_force
 float f_comp_i  = nz(math.max(0.0, (nz(high[1] - low[1], high - low) - (high - low))), 0.0) * vol_force
-float f_exh_i   = nz(math.max(high - math.max(open, close), math.min(open, close) - low) > (body_work * 1.2) ? math.max(high - math.max(open, close), math.min(open, close) - low) : 0.0) * vol_force
+// Exaustão agora requer que os pavios sejam significativamente maiores que o corpo
+float f_exh_i   = nz(wicks > (body_work * 1.5) ? wicks : 0.0) * vol_force
 
 float total_i = f_bull_i + f_bear_i + f_comp_i + f_exh_i
 float p_bull_i = f_bull_i / (total_i <= 0 ? 1 : total_i)
@@ -85,8 +89,11 @@ var int pos_state = 0 // 0: Fora, 1: Long, -1: Short
 var float trail_sl = na
 
 float base_atr = nz(ta.atr(14), ta.sma(math.abs(high - low), 14))
+// Coerência: razão entre força recente e trabalho histórico
 float raw_energy_ratio = nz(ta.sma(total_i, 10) / math.max(ta.sma(math.abs(close - open), 50), syminfo.mintick), 1.0)
-float energy_mult = math.max(0.6, math.min(1.4, raw_energy_ratio))
+// Ajuste dinâmico por persistência (Hurst)
+float h_factor = math.map(h_val, 0.4, 0.6, 1.2, 0.8) // H maior (tendência) = Stop mais técnico/próximo
+float energy_mult = math.max(0.5, math.min(1.5, raw_energy_ratio * h_factor))
 float work_dist = base_atr * energy_mult
 
 // Lógica de Entrada
@@ -103,7 +110,7 @@ bool exit_long  = false
 bool exit_short = false
 
 if pos_state == 1 // Long
-    float tightening = (regime == 3 or regime == 2) ? 0.75 : 1.0
+    float tightening = (regime == 3 or regime == 2 or h_val < 0.48) ? 0.75 : 1.0
     float current_sl = low - (work_dist * tightening)
     if not na(current_sl)
         trail_sl := na(trail_sl) ? current_sl : math.max(trail_sl, current_sl)
@@ -113,7 +120,7 @@ if pos_state == 1 // Long
         pos_state := 0
         trail_sl := na
 else if pos_state == -1 // Short
-    float tightening = (regime == 3 or regime == 2) ? 0.75 : 1.0
+    float tightening = (regime == 3 or regime == 2 or h_val < 0.48) ? 0.75 : 1.0
     float current_sl = high + (work_dist * tightening)
     if not na(current_sl)
         trail_sl := na(trail_sl) ? current_sl : math.min(trail_sl, current_sl)
@@ -134,8 +141,8 @@ bool enter_short = pos_state == -1 and pos_state[1] == 0
 plotshape(enter_long, "IGNITION LONG", shape.circle, location.belowbar, color.green, size=size.small, text="⚡", textcolor=color.white, display=display.all - display.status_line)
 plotshape(enter_short, "IGNITION SHORT", shape.circle, location.abovebar, color.red, size=size.small, text="🔥", textcolor=color.white, display=display.all - display.status_line)
 
-plotshape(enter_long and h_val > 0.55, "HIGH CONVICTION LONG", shape.labelup, location.belowbar, color.new(color.green, 100), text="🚀", textcolor=color.green, size=size.tiny, display=display.all - display.status_line)
-plotshape(enter_short and h_val > 0.55, "HIGH CONVICTION SHORT", shape.labeldown, location.abovebar, color.new(color.red, 100), text="🚀", textcolor=color.red, size=size.tiny, display=display.all - display.status_line)
+plotshape(enter_long and h_val > 0.52, "HIGH CONVICTION LONG", shape.labelup, location.belowbar, color.new(color.green, 100), text="🚀", textcolor=color.green, size=size.tiny, display=display.all - display.status_line)
+plotshape(enter_short and h_val > 0.52, "HIGH CONVICTION SHORT", shape.labeldown, location.abovebar, color.new(color.red, 100), text="🚀", textcolor=color.red, size=size.tiny, display=display.all - display.status_line)
 
 plotshape(exit_long, "EXIT LONG", shape.labeldown, location.abovebar, color.new(color.black, 40), text="⭕", textcolor=color.red, size=size.small, display=display.all - display.status_line)
 plotshape(exit_short, "EXIT SHORT", shape.labelup, location.belowbar, color.new(color.black, 40), text="⭕", textcolor=color.green, size=size.small, display=display.all - display.status_line)
@@ -146,9 +153,10 @@ var table hud = table.new(position.top_right, 3, 6, bgcolor=color.new(color.blac
 if barstate.islast
     string regime_str = regime == 0 ? "BULLISH" : regime == 1 ? "BEARISH" : regime == 2 ? "COMPRESSION" : "EXHAUSTION"
     string system_str = pos_state == 1 ? "LONG" : pos_state == -1 ? "SHORT" : "WAITING"
+    string conviction_icon = h_val > 0.52 ? "🚀" : h_val < 0.48 ? "⚠️" : "⚖️"
 
     table.merge_cells(hud, 0, 0, 2, 0)
-    table.cell(hud, 0, 0, syminfo.ticker + " | " + profile_label + " | " + system_str + " | " + regime_str + " | H: " + str.tostring(h_val, "#.##") + " (" + h_state + ")", text_color=color.white, text_size=size.small)
+    table.cell(hud, 0, 0, conviction_icon + " " + syminfo.ticker + " | " + profile_label + " | " + system_str + " | " + regime_str + " | H: " + str.tostring(h_val, "#.##") + " (" + h_state + ")", text_color=color.white, text_size=size.small)
 
     table.cell(hud, 0, 1, "FORÇA", text_color=color.gray, text_size=size.small)
     table.cell(hud, 1, 1, "AGORA", text_color=color.gray, text_size=size.small)
