@@ -103,48 +103,52 @@ else if pos_state == -1 // Short
 
 // Plotagem da Inércia (Inertial Trail / Stop Loss)
 plot(trail_sl, "Inertial Trail SL", color=regime_col, linewidth=2, style=plot.style_linebr)
-barcolor(color.new(regime_col, 50))
 
-// --- 3.1 SINAIS DE EXECUÇÃO (UI CLARA) ---
+// Coloração dos Candles por Estado de Markov (Visão Direta do Regime)
+// As cores tradicionais (verde/vermelho) agora representam o Estado de Markov, não o fechamento do candle.
+barcolor(regime_col)
+
+// --- 3.1 SINAIS DE EXECUÇÃO (IGNITION & FORCE BREAK) ---
 bool enter_long  = pos_state == 1 and pos_state[1] == 0
 bool enter_short = pos_state == -1 and pos_state[1] == 0
 
-// Sinais de Entrada: Setas Grandes e Únicas
-plotshape(enter_long, "ORDEM COMPRA", shape.arrowup, location.belowbar, color.green, size=size.normal)
-plotshape(enter_short, "ORDEM VENDA", shape.arrowdown, location.abovebar, color.red, size=size.normal)
+// Ignição de Movimento (Entrada) - Círculos com ícones de energia
+plotshape(enter_long, "IGNITION LONG", shape.circle, location.belowbar, color.green, size=size.small, text="⚡", textcolor=color.white)
+plotshape(enter_short, "IGNITION SHORT", shape.circle, location.abovebar, color.red, size=size.small, text="🔥", textcolor=color.white)
 
-// Convicção (Apenas se a ordem acabou de abrir)
-plotshape(enter_long and h_val > 0.55, "Alta Convicção Bull", shape.labelup, location.belowbar, color.new(color.green, 100), text="🚀", textcolor=color.green, size=size.tiny)
-plotshape(enter_short and h_val > 0.55, "Alta Convicção Bear", shape.labeldown, location.abovebar, color.new(color.red, 100), text="🚀", textcolor=color.red, size=size.tiny)
+// Convicção (Hurst Persistence)
+plotshape(enter_long and h_val > 0.55, "HIGH PERSISTENCE", shape.labelup, location.belowbar, color.new(color.green, 100), text="🚀", textcolor=color.green, size=size.tiny)
+plotshape(enter_short and h_val > 0.55, "HIGH PERSISTENCE", shape.labeldown, location.abovebar, color.new(color.red, 100), text="🚀", textcolor=color.red, size=size.tiny)
 
-// Sinais de Saída: Texto Claro e Único
-plotshape(exit_long, "FECHAR COMPRA", shape.labeldown, location.abovebar, color.red, text="EXIT", textcolor=color.white, size=size.small)
-plotshape(exit_short, "FECHAR VENDA", shape.labelup, location.belowbar, color.green, text="EXIT", textcolor=color.white, size=size.small)
+// Quebra de Força (Saída) - Símbolo de "Power Off"
+plotshape(exit_long, "FORCE BREAK LONG", shape.labeldown, location.abovebar, color.new(color.black, 40), text="⭕", textcolor=color.red, size=size.small)
+plotshape(exit_short, "FORCE BREAK SHORT", shape.labelup, location.belowbar, color.new(color.black, 40), text="⭕", textcolor=color.green, size=size.small)
 
-// --- 4. TABELA HUD ---
-var table hud = table.new(position.top_right, 3, 6, bgcolor=color.new(color.black, 70), border_width=1, border_color=color.gray)
+// --- 4. ENGINE GAUGE (BALANÇO DE FORÇAS EM TEMPO REAL) ---
+// Visualização vertical no canto direito para mostrar o jogo de forças ATUAL.
+var table gauge = table.new(position.right, 2, 4, bgcolor=color.new(color.black, 80), border_width=1, border_color=color.gray)
 
 if barstate.islast
-    table.cell(hud, 0, 0, "Métrica", text_color=color.white)
-    table.cell(hud, 1, 0, "Valor", text_color=color.white)
-    table.cell(hud, 2, 0, "Estado", text_color=color.white)
+    // Força Bull vs Bear
+    table.cell(gauge, 0, 0, "⚡ BULL", text_color=color.green, text_size=size.small)
+    table.cell(gauge, 1, 0, str.tostring(p_bull_i * 100, "0") + "%", text_color=color.white, text_size=size.small)
 
-    table.cell(hud, 0, 1, "Bull", text_color=color.green)
-    table.cell(hud, 1, 1, str.tostring(p_bull_i * 100, "#.0") + "%", text_color=color.white)
-    table.cell(hud, 2, 1, str.tostring(p_bull * 100, "#.0") + "%", text_color=color.white)
+    table.cell(gauge, 0, 1, "🔥 BEAR", text_color=color.red, text_size=size.small)
+    table.cell(gauge, 1, 1, str.tostring(p_bear_i * 100, "0") + "%", text_color=color.white, text_size=size.small)
 
-    table.cell(hud, 0, 2, "Bear", text_color=color.red)
-    table.cell(hud, 1, 2, str.tostring(p_bear_i * 100, "#.0") + "%", text_color=color.white)
-    table.cell(hud, 2, 2, str.tostring(p_bear * 100, "#.0") + "%", text_color=color.white)
+    table.cell(gauge, 0, 2, "🌀 COMP", text_color=color.blue, text_size=size.small)
+    table.cell(gauge, 1, 2, str.tostring(p_comp_i * 100, "0") + "%", text_color=color.white, text_size=size.small)
 
-    table.cell(hud, 0, 3, "Comp", text_color=color.blue)
-    table.cell(hud, 1, 3, str.tostring(p_comp_i * 100, "#.0") + "%", text_color=color.white)
-    table.cell(hud, 2, 3, str.tostring(p_comp * 100, "#.0") + "%", text_color=color.white)
+    table.cell(gauge, 0, 3, "💨 EXH", text_color=color.orange, text_size=size.small)
+    table.cell(gauge, 1, 3, str.tostring(p_exh_i * 100, "0") + "%", text_color=color.white, text_size=size.small)
 
-    table.cell(hud, 0, 4, "Exh", text_color=color.orange)
-    table.cell(hud, 1, 4, str.tostring(p_exh_i * 100, "#.0") + "%", text_color=color.white)
-    table.cell(hud, 2, 4, str.tostring(p_exh * 100, "#.0") + "%", text_color=color.white)
+// --- 5. TABELA HUD (SYSTEM STATUS) ---
+var table hud = table.new(position.top_right, 4, 1, bgcolor=color.new(color.black, 70), border_width=1, border_color=color.gray)
 
-    table.cell(hud, 0, 5, "Hurst", text_color=color.white)
-    table.cell(hud, 1, 5, str.tostring(h_val, "#.##"), text_color=h_color)
-    table.cell(hud, 2, 5, h_state, text_color=h_color)
+if barstate.islast
+    string regime_str = regime == 0 ? "BULLISH" : regime == 1 ? "BEARISH" : regime == 2 ? "COMPRESSION" : "EXHAUSTION"
+
+    table.cell(hud, 0, 0, "SYSTEM: ACTIVE", text_color=color.lime, text_size=size.small)
+    table.cell(hud, 1, 0, "REGIME: " + regime_str, text_color=regime_col, text_size=size.small)
+    table.cell(hud, 2, 0, "HURST: " + str.tostring(h_val, "#.##"), text_color=h_color, text_size=size.small)
+    table.cell(hud, 3, 0, "STATE: " + h_state, text_color=h_color, text_size=size.small)
