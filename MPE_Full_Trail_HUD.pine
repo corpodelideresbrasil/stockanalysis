@@ -55,14 +55,14 @@ float p_exh_i  = f_exh  / (total <= 0 ? 1 : total)
 
 // --- 2. CADEIA DE MARKOV (INÉRCIA) ---
 var float p_bull = 0.25, var float p_bear = 0.25, var float p_comp = 0.25, var float p_exh = 0.25
-if bar_index > 50 // Estabilização inicial
-    if not na(total) and total > 0
-        p_bull := (p_bull * markov_decay) + (p_bull_i * (1 - markov_decay))
-        p_bear := (p_bear * markov_decay) + (p_bear_i * (1 - markov_decay))
-        p_comp := (p_comp * markov_decay) + (p_comp_i * (1 - markov_decay))
-        p_exh  := (p_exh * markov_decay)  + (p_exh_i * (1 - markov_decay))
 
-// Normalização de segurança para evitar drift e desaparecimento do script
+if not na(total) and total > 0
+    p_bull := (p_bull * markov_decay) + (p_bull_i * (1 - markov_decay))
+    p_bear := (p_bear * markov_decay) + (p_bear_i * (1 - markov_decay))
+    p_comp := (p_comp * markov_decay) + (p_comp_i * (1 - markov_decay))
+    p_exh  := (p_exh * markov_decay)  + (p_exh_i * (1 - markov_decay))
+
+// Normalização de segurança para evitar drift e garantir estabilidade visual
 float _sum_p = p_bull + p_bear + p_comp + p_exh
 p_bull := nz(p_bull / (_sum_p <= 0 ? 1 : _sum_p), 0.25)
 p_bear := nz(p_bear / (_sum_p <= 0 ? 1 : _sum_p), 0.25)
@@ -70,24 +70,32 @@ p_comp := nz(p_comp / (_sum_p <= 0 ? 1 : _sum_p), 0.25)
 p_exh  := nz(p_exh  / (_sum_p <= 0 ? 1 : _sum_p), 0.25)
 
 // --- 3. INERTIAL TRAIL & POSITION TRACKING ---
-// Regime suavizado para evitar flickering (mínimo de 3 barras para confirmar troca)
+// Regime suavizado por persistência (Hysteresis) para evitar flickering
 float max_p = math.max(p_bull, p_bear, p_comp, p_exh)
 int raw_regime = max_p == p_bull ? 0 : max_p == p_bear ? 1 : max_p == p_comp ? 2 : 3
-int regime = nz(ta.mode(raw_regime, 3), raw_regime)
+
+var int regime = 0
+if raw_regime != regime
+    if ta.cum(raw_regime == raw_regime[1] ? 1 : 0) >= 2
+        regime := raw_regime
+
+// Forçamos o recalculo em cada barra para evitar que o zoom "perca" o estado
+var float force_update = 0.0
+force_update := close
 color regime_col = regime == 0 ? color.green : regime == 1 ? color.red : regime == 2 ? color.blue : color.orange
 
 var int pos_state = 0 // 0: Fora, 1: Comprado, -1: Vendido
 var float trail_sl = na
 
-// Cálculo de Distância (Suavizado e Linearizado para evitar saltos abruptos)
+// Cálculo de Distância (Suavizado e Linearizado para evitar distorção de escala)
 // Utilizamos o ATR como base e a Energia Markoviana como multiplicador de 'aperto'
 float base_atr = nz(ta.atr(14), ta.sma(math.abs(high - low), 14))
 float raw_energy_ratio = nz(ta.sma(total, 10) / math.max(ta.sma(math.abs(close - open), 50), syminfo.mintick), 1.0)
-float energy_mult = math.max(0.7, math.min(1.8, raw_energy_ratio))
+float energy_mult = math.max(0.6, math.min(1.5, raw_energy_ratio)) // Range reduzido para estabilidade visual
 float work_dist = base_atr * energy_mult
 
-// Lógica de Entrada
-if pos_state == 0 and not na(work_dist)
+// Lógica de Entrada (Gatilhada apenas após estabilização do indicador)
+if bar_index > 30 and pos_state == 0 and not na(work_dist)
     if regime == 0 // Bull
         pos_state := 1
         trail_sl := low - work_dist
