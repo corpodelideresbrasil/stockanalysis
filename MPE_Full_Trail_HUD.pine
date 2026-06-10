@@ -18,8 +18,7 @@ float markov_decay = switch profile
     AssetProfile.EQUITIES => 0.95
     AssetProfile.INDICES  => 0.98
 
-// --- 0.1 MÉTRICA DE PERSISTÊNCIA (HURST INSTANTÂNEO) ---
-// Removida a média móvel (EMA) para eliminar lag. Hurst agora é calculado sobre 20 períodos para maior reatividades.
+// --- 0.1 MÉTRICA DE PERSISTÊNCIA (HURST REATIVO) ---
 get_hurst(len) =>
     float log_len = math.log(len)
     float max_high = ta.highest(high, len)
@@ -30,9 +29,7 @@ get_hurst(len) =>
     h
 
 float h_val = get_hurst(20)
-
 string h_state = h_val > 0.55 ? "Trending" : h_val < 0.45 ? "Mean-Rev" : "Random"
-color h_color = h_val > 0.55 ? color.aqua : h_val < 0.45 ? color.fuchsia : color.gray
 
 // --- 1. MÓDULO DE FÍSICA (COM FILTRO DE VOLUME) ---
 float v_ma      = ta.sma(volume, 20)
@@ -62,20 +59,21 @@ float max_p = math.max(p_bull, p_bear, p_comp, p_exh)
 int regime = max_p == p_bull ? 0 : max_p == p_bear ? 1 : max_p == p_comp ? 2 : 3
 color regime_col = regime == 0 ? color.green : regime == 1 ? color.red : regime == 2 ? color.blue : color.orange
 
-// Variáveis de Estado da Posição
 var int pos_state = 0 // 0: Fora, 1: Comprado, -1: Vendido
 var float trail_sl = na
 
-// Cálculo de Distância Baseado na Força (Energia Instantânea)
-// Substituído ATR por uma métrica de 'Trabalho de Preço' (Volatilidade Real do Momento)
-float work_dist = total * 1.5
+// Cálculo de Distância (Suavizado e Linearizado para evitar saltos abruptos)
+// Utilizamos o ATR como base e a Energia Markoviana como multiplicador de 'aperto'
+float base_atr = ta.atr(14)
+float energy_mult = math.clamp(ta.sma(total, 10) / ta.sma(math.abs(close - open), 50), 0.8, 2.5)
+float work_dist = base_atr * energy_mult
 
-// Lógica de Entrada (Só permite nova ordem se pos_state == 0)
+// Lógica de Entrada
 if pos_state == 0
-    if regime == 0 // Bull (Trend Following)
+    if regime == 0 // Bull
         pos_state := 1
         trail_sl := low - work_dist
-    else if regime == 1 // Bear (Trend Following)
+    else if regime == 1 // Bear
         pos_state := -1
         trail_sl := high + work_dist
 
@@ -84,20 +82,23 @@ bool exit_long  = false
 bool exit_short = false
 
 if pos_state == 1 // Long
-    // Ajuste dinâmico: usa as energias atuais para apertar o stop
-    // Se houver compressão ou exaustão, o stop sobe agressivamente.
-    float current_dist = (regime == 3 or regime == 2) ? total * 0.5 : total * 1.2
-    float current_sl = low - current_dist
+    // Aperta o stop dinamicamente: Regime 2/3 (Compressão/Exaustão) reduz a distância (stop mais curto)
+    float tightening = (regime == 3 or regime == 2) ? 0.7 : 1.0
+    float current_sl = low - (work_dist * tightening)
+
+    // Garantimos que o stop só suba (Trailing)
     trail_sl := na(trail_sl) ? current_sl : math.max(trail_sl, current_sl)
 
-    // Saída por Preço ou Regime (Markov Flip)
+    // Saída por Preço ou Inversão de Regime (Markov Bearish)
     if close < trail_sl or regime == 1
         exit_long := true
         pos_state := 0
         trail_sl := na
 else if pos_state == -1 // Short
-    float current_dist = (regime == 3 or regime == 2) ? total * 0.5 : total * 1.2
-    float current_sl = high + current_dist
+    float tightening = (regime == 3 or regime == 2) ? 0.7 : 1.0
+    float current_sl = high + (work_dist * tightening)
+
+    // Garantimos que o stop só desça (Trailing)
     trail_sl := na(trail_sl) ? current_sl : math.min(trail_sl, current_sl)
 
     if close > trail_sl or regime == 0
@@ -105,41 +106,39 @@ else if pos_state == -1 // Short
         pos_state := 0
         trail_sl := na
 
-// Plotagem da Inércia (Inertial Trail / Stop Loss)
+// Plotagem da Inércia (Inertial Trail SL)
 plot(trail_sl, "Inertial Trail SL", color=regime_col, linewidth=2, style=plot.style_linebr)
 
-// Coloração dos Candles por Estado de Markov (Visão Direta do Regime)
+// Plotagem do Regime nos Candles
 barcolor(show_barcolor ? color.new(regime_col, 50) : na)
 
 // --- 3.1 SINAIS DE EXECUÇÃO (IGNITION & FORCE BREAK) ---
 bool enter_long  = pos_state == 1 and pos_state[1] == 0
 bool enter_short = pos_state == -1 and pos_state[1] == 0
 
-// Ignição de Movimento (Entrada) - Círculos com ícones de energia
+// Ignição (Entrada)
 plotshape(enter_long, "IGNITION LONG", shape.circle, location.belowbar, color.green, size=size.small, text="⚡", textcolor=color.white)
 plotshape(enter_short, "IGNITION SHORT", shape.circle, location.abovebar, color.red, size=size.small, text="🔥", textcolor=color.white)
 
-// Convicção (Hurst Persistence)
-plotshape(enter_long and h_val > 0.55, "HIGH PERSISTENCE", shape.labelup, location.belowbar, color.new(color.green, 100), text="🚀", textcolor=color.green, size=size.tiny)
-plotshape(enter_short and h_val > 0.55, "HIGH PERSISTENCE", shape.labeldown, location.abovebar, color.new(color.red, 100), text="🚀", textcolor=color.red, size=size.tiny)
+// Convicção (Hurst)
+plotshape(enter_long and h_val > 0.55, "HIGH CONVICTION", shape.labelup, location.belowbar, color.new(color.green, 100), text="🚀", textcolor=color.green, size=size.tiny)
+plotshape(enter_short and h_val > 0.55, "HIGH CONVICTION", shape.labeldown, location.abovebar, color.new(color.red, 100), text="🚀", textcolor=color.red, size=size.tiny)
 
-// Quebra de Força (Saída) - Símbolo de "Power Off"
-plotshape(exit_long, "FORCE BREAK LONG", shape.labeldown, location.abovebar, color.new(color.black, 40), text="⭕", textcolor=color.red, size=size.small)
-plotshape(exit_short, "FORCE BREAK SHORT", shape.labelup, location.belowbar, color.new(color.black, 40), text="⭕", textcolor=color.green, size=size.small)
+// Quebra de Força (Saída)
+plotshape(exit_long, "EXIT LONG", shape.labeldown, location.abovebar, color.new(color.black, 40), text="⭕", textcolor=color.red, size=size.small)
+plotshape(exit_short, "EXIT SHORT", shape.labelup, location.belowbar, color.new(color.black, 40), text="⭕", textcolor=color.green, size=size.small)
 
-// --- 4. TABELA UNIFICADA (HUD & GAUGE) ---
+// --- 4. TABELA HUD ---
 var table hud = table.new(position.top_right, 3, 6, bgcolor=color.new(color.black, 70), border_width=1, border_color=color.gray)
 
 if barstate.islast
     string regime_str = regime == 0 ? "BULLISH" : regime == 1 ? "BEARISH" : regime == 2 ? "COMPRESSION" : "EXHAUSTION"
     string system_str = pos_state == 1 ? "LONG" : pos_state == -1 ? "SHORT" : "WAITING"
-    color system_col = pos_state == 0 ? color.gray : color.lime
 
-    // Cabeçalho de Status
+    // Cabeçalho unificado
     table.merge_cells(hud, 0, 0, 2, 0)
     table.cell(hud, 0, 0, "SYSTEM: " + system_str + " | REGIME: " + regime_str + " | H: " + str.tostring(h_val, "#.##") + " (" + h_state + ")", text_color=color.white, text_size=size.small)
 
-    // Colunas da Tabela de Forças
     table.cell(hud, 0, 1, "FORÇA", text_color=color.gray, text_size=size.small)
     table.cell(hud, 1, 1, "AGORA", text_color=color.gray, text_size=size.small)
     table.cell(hud, 2, 1, "MARKOV", text_color=color.gray, text_size=size.small)
