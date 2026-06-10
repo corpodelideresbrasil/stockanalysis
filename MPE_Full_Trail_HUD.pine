@@ -154,3 +154,8 @@ if barstate.islast
     table.cell(hud, 1, 0, "REGIME: " + regime_str, text_color=regime_col, text_size=size.small)
     table.cell(hud, 2, 0, "HURST: " + str.tostring(h_val, "#.##"), text_color=h_color, text_size=size.small)
     table.cell(hud, 3, 0, "STATE: " + h_state, text_color=h_color, text_size=size.small)
+
+// --- 6. ALERTAS OPERACIONAIS ---
+alertcondition(enter_long, "Ignição de Compra (BULL)", "Motor BULL ligado. Considere entrada de compra.")
+alertcondition(enter_short, "Ignição de Venda (BEAR)", "Motor BEAR ligado. Considere entrada de venda.")
+alertcondition(exit_long or exit_short, "Quebra de Força (EXIT)", "A energia do movimento acabou. Considere fechar a posição.")
