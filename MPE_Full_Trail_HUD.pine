@@ -17,7 +17,8 @@ float markov_decay = switch profile
     AssetProfile.EQUITIES => 0.95
     AssetProfile.INDICES  => 0.98
 
-// --- 0.1 CÁLCULO DO HURST EXPONENT (MÉTRICA DE FRACTALIDADE) ---
+// --- 0.1 MÉTRICA DE PERSISTÊNCIA (HURST INSTANTÂNEO) ---
+// Removida a média móvel (EMA) para eliminar lag. Hurst agora é calculado sobre 20 períodos para maior reatividades.
 get_hurst(len) =>
     float log_len = math.log(len)
     float max_high = ta.highest(high, len)
@@ -27,11 +28,10 @@ get_hurst(len) =>
     float h = s != 0 ? math.log(r / s) / log_len : 0.5
     h
 
-float h_val = get_hurst(30)
-float h_ema = ta.ema(h_val, 10)
+float h_val = get_hurst(20)
 
-string h_state = h_ema > 0.55 ? "Trending" : h_ema < 0.45 ? "Mean-Rev" : "Random"
-color h_color = h_ema > 0.55 ? color.aqua : h_ema < 0.45 ? color.fuchsia : color.gray
+string h_state = h_val > 0.55 ? "Trending" : h_val < 0.45 ? "Mean-Rev" : "Random"
+color h_color = h_val > 0.55 ? color.aqua : h_val < 0.45 ? color.fuchsia : color.gray
 
 // --- 1. MÓDULO DE FÍSICA ---
 float body_work = math.abs(close - open)
@@ -61,36 +61,39 @@ color regime_col = regime == 0 ? color.green : regime == 1 ? color.red : regime 
 // Variáveis de Estado da Posição
 var int pos_state = 0 // 0: Fora, 1: Comprado, -1: Vendido
 var float trail_sl = na
-float atr = ta.atr(14)
 
-// Lógica de Entrada
+// Cálculo de Distância Baseado na Força (Energia Instantânea)
+// Substituído ATR por uma métrica de 'Trabalho de Preço' (Volatilidade Real do Momento)
+float work_dist = total * 1.5
+
+// Lógica de Entrada (Só permite nova ordem se pos_state == 0)
 if pos_state == 0
-    if regime == 0 // Bull
+    if regime == 0 // Bull (Trend Following)
         pos_state := 1
-        trail_sl := low - (atr * 1.5)
-    else if regime == 1 // Bear
+        trail_sl := low - work_dist
+    else if regime == 1 // Bear (Trend Following)
         pos_state := -1
-        trail_sl := high + (atr * 1.5)
+        trail_sl := high + work_dist
 
 // Lógica de Manutenção e Saída
 bool exit_long  = false
 bool exit_short = false
 
 if pos_state == 1 // Long
-    // Ajuste dinâmico: aperta o stop se houver exaustão ou compressão
-    // A distância "respira" com 1.5 ATR e "encurta" com 0.7 ATR em sinais de fraqueza
-    float tight_mult = (regime == 3 or regime == 2) ? 0.7 : 1.5
-    float current_sl = low - (atr * tight_mult)
+    // Ajuste dinâmico: usa as energias atuais para apertar o stop
+    // Se houver compressão ou exaustão, o stop sobe agressivamente.
+    float current_dist = (regime == 3 or regime == 2) ? total * 0.5 : total * 1.2
+    float current_sl = low - current_dist
     trail_sl := na(trail_sl) ? current_sl : math.max(trail_sl, current_sl)
 
-    // Saída por Preço (Stop Hit) ou Reversão de Força (Regime Bear dominante)
+    // Saída por Preço ou Regime (Markov Flip)
     if close < trail_sl or regime == 1
         exit_long := true
         pos_state := 0
         trail_sl := na
 else if pos_state == -1 // Short
-    float tight_mult = (regime == 3 or regime == 2) ? 0.7 : 1.5
-    float current_sl = high + (atr * tight_mult)
+    float current_dist = (regime == 3 or regime == 2) ? total * 0.5 : total * 1.2
+    float current_sl = high + current_dist
     trail_sl := na(trail_sl) ? current_sl : math.min(trail_sl, current_sl)
 
     if close > trail_sl or regime == 0
@@ -102,25 +105,21 @@ else if pos_state == -1 // Short
 plot(trail_sl, "Inertial Trail SL", color=regime_col, linewidth=2, style=plot.style_linebr)
 barcolor(color.new(regime_col, 50))
 
-// --- 3.1 SINAIS DE TRANSIÇÃO E CONVICÇÃO ---
-bool switch_to_bull = regime == 0 and regime[1] != 0
-bool switch_to_bear = regime == 1 and regime[1] != 1
+// --- 3.1 SINAIS DE EXECUÇÃO (UI CLARA) ---
+bool enter_long  = pos_state == 1 and pos_state[1] == 0
+bool enter_short = pos_state == -1 and pos_state[1] == 0
 
-// Sinais Padrão (Convictção Normal)
-plotshape(switch_to_bull and (h_ema >= 0.47 and h_ema <= 0.55), "Compra", shape.triangleup, location.belowbar, color.green, size=size.small)
-plotshape(switch_to_bear and (h_ema >= 0.47 and h_ema <= 0.55), "Venda", shape.triangledown, location.abovebar, color.red, size=size.small)
+// Sinais de Entrada: Setas Grandes e Únicas
+plotshape(enter_long, "ORDEM COMPRA", shape.arrowup, location.belowbar, color.green, size=size.normal, title="Entrada Long")
+plotshape(enter_short, "ORDEM VENDA", shape.arrowdown, location.abovebar, color.red, size=size.normal, title="Entrada Short")
 
-// Alta Convicção (H > 0.55) - Foguete
-plotshape(switch_to_bull and h_ema > 0.55, "Compra Alta Convicção", shape.labelup, location.belowbar, color.green, text="🚀", textcolor=color.white, size=size.small)
-plotshape(switch_to_bear and h_ema > 0.55, "Venda Alta Convicção", shape.labeldown, location.abovebar, color.red, text="🚀", textcolor=color.white, size=size.small)
+// Convicção (Apenas se a ordem acabou de abrir)
+plotshape(enter_long and h_val > 0.55, "Alta Convicção Bull", shape.labelup, location.belowbar, color.new(color.green, 100), text="🚀", textcolor=color.green, size=size.tiny)
+plotshape(enter_short and h_val > 0.55, "Alta Convicção Bear", shape.labeldown, location.abovebar, color.new(color.red, 100), text="🚀", textcolor=color.red, size=size.tiny)
 
-// Baixa Convicção (H < 0.47) - Atenção
-plotshape(switch_to_bull and h_ema < 0.47, "Compra Baixa Convicção", shape.labelup, location.belowbar, color.orange, text="⚠️", textcolor=color.black, size=size.small)
-plotshape(switch_to_bear and h_ema < 0.47, "Venda Baixa Convicção", shape.labeldown, location.abovebar, color.orange, text="⚠️", textcolor=color.black, size=size.small)
-
-// Sinais de Saída (Exit)
-plotshape(exit_long, "Saída Compra", shape.xcross, location.abovebar, color.red, size=size.tiny)
-plotshape(exit_short, "Saída Venda", shape.xcross, location.belowbar, color.green, size=size.tiny)
+// Sinais de Saída: Texto Claro e Único
+plotshape(exit_long, "FECHAR COMPRA", shape.labeldown, location.abovebar, color.red, text="EXIT", textcolor=color.white, size=size.small)
+plotshape(exit_short, "FECHAR VENDA", shape.labelup, location.belowbar, color.green, text="EXIT", textcolor=color.white, size=size.small)
 
 // --- 4. TABELA HUD ---
 var table hud = table.new(position.top_right, 3, 6, bgcolor=color.new(color.black, 70), border_width=1, border_color=color.gray)
@@ -147,5 +146,5 @@ if barstate.islast
     table.cell(hud, 2, 4, str.tostring(p_exh * 100, "#.0") + "%", text_color=color.white)
 
     table.cell(hud, 0, 5, "Hurst", text_color=color.white)
-    table.cell(hud, 1, 5, str.tostring(h_ema, "#.##"), text_color=h_color)
+    table.cell(hud, 1, 5, str.tostring(h_val, "#.##"), text_color=h_color)
     table.cell(hud, 2, 5, h_state, text_color=h_color)
