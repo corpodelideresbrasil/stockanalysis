@@ -65,7 +65,8 @@ var float trail_sl = na
 // Cálculo de Distância (Suavizado e Linearizado para evitar saltos abruptos)
 // Utilizamos o ATR como base e a Energia Markoviana como multiplicador de 'aperto'
 float base_atr = ta.atr(14)
-float energy_mult = math.clamp(ta.sma(total, 10) / ta.sma(math.abs(close - open), 50), 0.8, 2.5)
+float raw_energy_ratio = ta.sma(total, 10) / ta.sma(math.abs(close - open), 50)
+float energy_mult = math.max(0.8, math.min(2.5, nz(raw_energy_ratio, 1.0)))
 float work_dist = base_atr * energy_mult
 
 // Lógica de Entrada
