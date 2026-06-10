@@ -33,12 +33,15 @@ float h_val = get_hurst(20)
 string h_state = h_val > 0.55 ? "Trending" : h_val < 0.45 ? "Mean-Rev" : "Random"
 color h_color = h_val > 0.55 ? color.aqua : h_val < 0.45 ? color.fuchsia : color.gray
 
-// --- 1. MÓDULO DE FÍSICA ---
+// --- 1. MÓDULO DE FÍSICA (COM FILTRO DE VOLUME) ---
+float v_ma      = ta.sma(volume, 20)
+float vol_force = v_ma > 0 ? volume / v_ma : 1.0
+
 float body_work = math.abs(close - open)
-float f_bull    = close > open ? body_work : 0.0
-float f_bear    = close < open ? body_work : 0.0
-float f_comp    = math.max(0.0, (nz(high[1] - low[1], high - low) - (high - low)))
-float f_exh     = math.max(high - math.max(open, close), math.min(open, close) - low) > (body_work * 1.2) ? math.max(high - math.max(open, close), math.min(open, close) - low) : 0.0
+float f_bull    = (close > open ? body_work : 0.0) * vol_force
+float f_bear    = (close < open ? body_work : 0.0) * vol_force
+float f_comp    = (math.max(0.0, (nz(high[1] - low[1], high - low) - (high - low)))) * vol_force
+float f_exh     = (math.max(high - math.max(open, close), math.min(open, close) - low) > (body_work * 1.2) ? math.max(high - math.max(open, close), math.min(open, close) - low) : 0.0) * vol_force
 
 float total = f_bull + f_bear + f_comp + f_exh
 float p_bull_i = f_bull / (total == 0 ? 1 : total)
@@ -57,6 +60,11 @@ p_exh  := (p_exh * markov_decay)  + (p_exh_i * (1 - markov_decay))
 float max_p = math.max(p_bull, p_bear, p_comp, p_exh)
 int regime = max_p == p_bull ? 0 : max_p == p_bear ? 1 : max_p == p_comp ? 2 : 3
 color regime_col = regime == 0 ? color.green : regime == 1 ? color.red : regime == 2 ? color.blue : color.orange
+
+// Lógica de Transição (Divergência entre Agora e Inércia)
+float max_i = math.max(p_bull_i, p_bear_i, p_comp_i, p_exh_i)
+int regime_i = max_i == p_bull_i ? 0 : max_i == p_bear_i ? 1 : max_i == p_comp_i ? 2 : 3
+bool is_transition = regime_i != regime
 
 // Variáveis de Estado da Posição
 var int pos_state = 0 // 0: Fora, 1: Comprado, -1: Vendido
@@ -103,10 +111,10 @@ else if pos_state == -1 // Short
 
 // Plotagem da Inércia (Inertial Trail / Stop Loss)
 plot(trail_sl, "Inertial Trail SL", color=regime_col, linewidth=2, style=plot.style_linebr)
+plot(close, "Inertial Regime Line", color=regime_col, linewidth=3, style=plot.style_line)
 
 // Coloração dos Candles por Estado de Markov (Visão Direta do Regime)
-// As cores tradicionais (verde/vermelho) agora representam o Estado de Markov, não o fechamento do candle.
-barcolor(regime_col)
+barcolor(color.new(regime_col, 50))
 
 // --- 3.1 SINAIS DE EXECUÇÃO (IGNITION & FORCE BREAK) ---
 bool enter_long  = pos_state == 1 and pos_state[1] == 0
@@ -124,36 +132,41 @@ plotshape(enter_short and h_val > 0.55, "HIGH PERSISTENCE", shape.labeldown, loc
 plotshape(exit_long, "FORCE BREAK LONG", shape.labeldown, location.abovebar, color.new(color.black, 40), text="⭕", textcolor=color.red, size=size.small)
 plotshape(exit_short, "FORCE BREAK SHORT", shape.labelup, location.belowbar, color.new(color.black, 40), text="⭕", textcolor=color.green, size=size.small)
 
-// --- 4. ENGINE GAUGE (BALANÇO DE FORÇAS EM TEMPO REAL) ---
-// Visualização vertical no canto direito para mostrar o jogo de forças ATUAL.
-var table gauge = table.new(position.middle_right, 2, 4, bgcolor=color.new(color.black, 80), border_width=1, border_color=color.gray)
+// Aviso de Transição/Conflito (Visual no Topo)
+plotshape(is_transition, "TRANSITION WARNING", shape.diamond, location.top, color.new(color.yellow, 50), size=size.tiny)
 
-if barstate.islast
-    // Força Bull vs Bear
-    table.cell(gauge, 0, 0, "⚡ BULL", text_color=color.green, text_size=size.small)
-    table.cell(gauge, 1, 0, str.tostring(p_bull_i * 100, "0") + "%", text_color=color.white, text_size=size.small)
-
-    table.cell(gauge, 0, 1, "🔥 BEAR", text_color=color.red, text_size=size.small)
-    table.cell(gauge, 1, 1, str.tostring(p_bear_i * 100, "0") + "%", text_color=color.white, text_size=size.small)
-
-    table.cell(gauge, 0, 2, "🌀 COMP", text_color=color.blue, text_size=size.small)
-    table.cell(gauge, 1, 2, str.tostring(p_comp_i * 100, "0") + "%", text_color=color.white, text_size=size.small)
-
-    table.cell(gauge, 0, 3, "💨 EXH", text_color=color.orange, text_size=size.small)
-    table.cell(gauge, 1, 3, str.tostring(p_exh_i * 100, "0") + "%", text_color=color.white, text_size=size.small)
-
-// --- 5. TABELA HUD (SYSTEM STATUS) ---
-var table hud = table.new(position.top_right, 4, 1, bgcolor=color.new(color.black, 70), border_width=1, border_color=color.gray)
+// --- 4. TABELA UNIFICADA (HUD & GAUGE) ---
+var table hud = table.new(position.top_right, 3, 6, bgcolor=color.new(color.black, 70), border_width=1, border_color=color.gray)
 
 if barstate.islast
     string regime_str = regime == 0 ? "BULLISH" : regime == 1 ? "BEARISH" : regime == 2 ? "COMPRESSION" : "EXHAUSTION"
     string system_str = pos_state == 1 ? "LONG" : pos_state == -1 ? "SHORT" : "WAITING"
     color system_col = pos_state == 0 ? color.gray : color.lime
 
-    table.cell(hud, 0, 0, "SYSTEM: " + system_str, text_color=system_col, text_size=size.small)
-    table.cell(hud, 1, 0, "REGIME: " + regime_str, text_color=regime_col, text_size=size.small)
-    table.cell(hud, 2, 0, "HURST: " + str.tostring(h_val, "#.##"), text_color=h_color, text_size=size.small)
-    table.cell(hud, 3, 0, "STATE: " + h_state, text_color=h_color, text_size=size.small)
+    // Cabeçalho de Status
+    table.merge_cells(hud, 0, 0, 2, 0)
+    table.cell(hud, 0, 0, "SYSTEM: " + system_str + " | REGIME: " + regime_str + " | HURST: " + str.tostring(h_val, "#.##"), text_color=color.white, text_size=size.small)
+
+    // Colunas da Tabela de Forças
+    table.cell(hud, 0, 1, "FORÇA", text_color=color.gray, text_size=size.small)
+    table.cell(hud, 1, 1, "AGORA", text_color=color.gray, text_size=size.small)
+    table.cell(hud, 2, 1, "MARKOV", text_color=color.gray, text_size=size.small)
+
+    table.cell(hud, 0, 2, "⚡ BULL", text_color=color.green, text_size=size.small)
+    table.cell(hud, 1, 2, str.tostring(p_bull_i * 100, "#.0") + "%", text_color=color.white, text_size=size.small)
+    table.cell(hud, 2, 2, str.tostring(p_bull * 100, "#.0") + "%" + (regime == 0 and is_transition ? " ⚠️" : ""), text_color=color.white, text_size=size.small)
+
+    table.cell(hud, 0, 3, "🔥 BEAR", text_color=color.red, text_size=size.small)
+    table.cell(hud, 1, 3, str.tostring(p_bear_i * 100, "#.0") + "%", text_color=color.white, text_size=size.small)
+    table.cell(hud, 2, 3, str.tostring(p_bear * 100, "#.0") + "%" + (regime == 1 and is_transition ? " ⚠️" : ""), text_color=color.white, text_size=size.small)
+
+    table.cell(hud, 0, 4, "🌀 COMP", text_color=color.blue, text_size=size.small)
+    table.cell(hud, 1, 4, str.tostring(p_comp_i * 100, "#.0") + "%", text_color=color.white, text_size=size.small)
+    table.cell(hud, 2, 4, str.tostring(p_comp * 100, "#.0") + "%" + (regime == 2 and is_transition ? " ⚠️" : ""), text_color=color.white, text_size=size.small)
+
+    table.cell(hud, 0, 5, "💨 EXH", text_color=color.orange, text_size=size.small)
+    table.cell(hud, 1, 5, str.tostring(p_exh_i * 100, "#.0") + "%", text_color=color.white, text_size=size.small)
+    table.cell(hud, 2, 5, str.tostring(p_exh * 100, "#.0") + "%" + (regime == 3 and is_transition ? " ⚠️" : ""), text_color=color.white, text_size=size.small)
 
 // --- 6. ALERTAS OPERACIONAIS ---
 alertcondition(enter_long, "Ignição de Compra (BULL)", "Motor BULL ligado. Considere entrada de compra.")
