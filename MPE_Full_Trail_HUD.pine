@@ -2,7 +2,7 @@
 // © raulfernandoferreira
 
 //@version=6
-indicator("MPE Vector NOW - Full Trail & HUD", shorttitle="MPE Full", overlay=true, max_bars_back=5000)
+indicator("MPE Vector NOW - Ultra Stable", shorttitle="MPE Stable", overlay=true, max_bars_back=5000)
 
 // --- 0. CONFIGURAÇÕES E INPUTS ---
 enum AssetProfile
@@ -11,12 +11,13 @@ enum AssetProfile
     INDICES  // "Heavy"
 
 AssetProfile profile = input.enum(AssetProfile.CRYPTO, "Perfil do Ativo", tooltip="Ajusta a sensibilidade da inércia com base na 'viscosidade' do mercado.")
-bool show_barcolor  = input.bool(true, "Colorir Candles por Regime", tooltip="Pinta os candles com a cor do Regime de Markov dominante.")
+bool show_barcolor  = input.bool(true, "Colorir Candles por Regime", tooltip="Pinta os candles com a cor do Regime dominante.")
 
-float markov_decay = switch profile
-    AssetProfile.CRYPTO   => 0.85
-    AssetProfile.EQUITIES => 0.95
-    AssetProfile.INDICES  => 0.98
+// Sensibilidade da Inércia (Comprimento da EMA)
+int markov_len = switch profile
+    AssetProfile.CRYPTO   => 10
+    AssetProfile.EQUITIES => 20
+    AssetProfile.INDICES  => 30
 
 string profile_label = switch profile
     AssetProfile.CRYPTO   => "Crypto/Hyper-Vol"
@@ -36,66 +37,60 @@ get_hurst(len) =>
 float h_val = get_hurst(20)
 string h_state = h_val > 0.55 ? "Trending" : h_val < 0.45 ? "Mean-Rev" : "Random"
 
-// --- 1. MÓDULO DE FÍSICA (COM FILTRO DE VOLUME) ---
+// --- 1. MÓDULO DE FÍSICA (INSTANTÂNEO) ---
 float v_ma      = ta.sma(volume, 20)
 float vol_force = nz(v_ma > 0 ? math.max(0.1, volume / v_ma) : 1.0, 1.0)
-vol_force := math.min(vol_force, 3.0) // Clamp de volume para evitar outliers
+vol_force := math.min(vol_force, 3.0)
 
 float body_work = math.abs(close - open)
-float f_bull    = nz(close > open ? body_work : 0.0) * vol_force
-float f_bear    = nz(close < open ? body_work : 0.0) * vol_force
-float f_comp    = nz(math.max(0.0, (nz(high[1] - low[1], high - low) - (high - low))), 0.0) * vol_force
-float f_exh     = nz(math.max(high - math.max(open, close), math.min(open, close) - low) > (body_work * 1.2) ? math.max(high - math.max(open, close), math.min(open, close) - low) : 0.0) * vol_force
+float f_bull_i  = nz(close > open ? body_work : 0.0) * vol_force
+float f_bear_i  = nz(close < open ? body_work : 0.0) * vol_force
+float f_comp_i  = nz(math.max(0.0, (nz(high[1] - low[1], high - low) - (high - low))), 0.0) * vol_force
+float f_exh_i   = nz(math.max(high - math.max(open, close), math.min(open, close) - low) > (body_work * 1.2) ? math.max(high - math.max(open, close), math.min(open, close) - low) : 0.0) * vol_force
 
-float total = f_bull + f_bear + f_comp + f_exh
-float p_bull_i = f_bull / (total <= 0 ? 1 : total)
-float p_bear_i = f_bear / (total <= 0 ? 1 : total)
-float p_comp_i = f_comp / (total <= 0 ? 1 : total)
-float p_exh_i  = f_exh  / (total <= 0 ? 1 : total)
+float total_i = f_bull_i + f_bear_i + f_comp_i + f_exh_i
+float p_bull_i = f_bull_i / (total_i <= 0 ? 1 : total_i)
+float p_bear_i = f_bear_i / (total_i <= 0 ? 1 : total_i)
+float p_comp_i = f_comp_i / (total_i <= 0 ? 1 : total_i)
+float p_exh_i  = f_exh_i  / (total_i <= 0 ? 1 : total_i)
 
-// --- 2. CADEIA DE MARKOV (INÉRCIA) ---
-var float p_bull = 0.25, var float p_bear = 0.25, var float p_comp = 0.25, var float p_exh = 0.25
+// --- 2. CADEIA DE MARKOV (ESTATELÉSS / EMA BASED) ---
+// Usamos EMA para garantir que o script não perca o estado durante o zoom/scroll
+float p_bull = ta.ema(p_bull_i, markov_len)
+float p_bear = ta.ema(p_bear_i, markov_len)
+float p_comp = ta.ema(p_comp_i, markov_len)
+float p_exh  = ta.ema(p_exh_i,  markov_len)
 
-if not na(total) and total > 0
-    p_bull := (p_bull * markov_decay) + (p_bull_i * (1 - markov_decay))
-    p_bear := (p_bear * markov_decay) + (p_bear_i * (1 - markov_decay))
-    p_comp := (p_comp * markov_decay) + (p_comp_i * (1 - markov_decay))
-    p_exh  := (p_exh * markov_decay)  + (p_exh_i * (1 - markov_decay))
-
-// Normalização de segurança para evitar drift e garantir estabilidade visual
+// Normalização de segurança
 float _sum_p = p_bull + p_bear + p_comp + p_exh
 p_bull := nz(p_bull / (_sum_p <= 0 ? 1 : _sum_p), 0.25)
 p_bear := nz(p_bear / (_sum_p <= 0 ? 1 : _sum_p), 0.25)
 p_comp := nz(p_comp / (_sum_p <= 0 ? 1 : _sum_p), 0.25)
 p_exh  := nz(p_exh  / (_sum_p <= 0 ? 1 : _sum_p), 0.25)
 
-// --- 3. INERTIAL TRAIL & POSITION TRACKING ---
-// Regime suavizado por persistência (Hysteresis) para evitar flickering
+// --- 3. REGIME & INERTIAL TRAIL ---
 float max_p = math.max(p_bull, p_bear, p_comp, p_exh)
 int raw_regime = max_p == p_bull ? 0 : max_p == p_bear ? 1 : max_p == p_comp ? 2 : 3
 
+// Persistência de 2 barras para evitar sinais falsos
 var int regime = 0
 if raw_regime != regime
-    if ta.cum(raw_regime == raw_regime[1] ? 1 : 0) >= 2
+    if raw_regime == raw_regime[1]
         regime := raw_regime
 
-// Forçamos o recalculo em cada barra para evitar que o zoom "perca" o estado
-var float force_update = 0.0
-force_update := close
 color regime_col = regime == 0 ? color.green : regime == 1 ? color.red : regime == 2 ? color.blue : color.orange
 
-var int pos_state = 0 // 0: Fora, 1: Comprado, -1: Vendido
+// Gerenciamento de Posição (Simulado para o Trailing Stop)
+var int pos_state = 0 // 0: Fora, 1: Long, -1: Short
 var float trail_sl = na
 
-// Cálculo de Distância (Suavizado e Linearizado para evitar distorção de escala)
-// Utilizamos o ATR como base e a Energia Markoviana como multiplicador de 'aperto'
 float base_atr = nz(ta.atr(14), ta.sma(math.abs(high - low), 14))
-float raw_energy_ratio = nz(ta.sma(total, 10) / math.max(ta.sma(math.abs(close - open), 50), syminfo.mintick), 1.0)
-float energy_mult = math.max(0.6, math.min(1.5, raw_energy_ratio)) // Range reduzido para estabilidade visual
+float raw_energy_ratio = nz(ta.sma(total_i, 10) / math.max(ta.sma(math.abs(close - open), 50), syminfo.mintick), 1.0)
+float energy_mult = math.max(0.6, math.min(1.4, raw_energy_ratio))
 float work_dist = base_atr * energy_mult
 
-// Lógica de Entrada (Gatilhada apenas após estabilização do indicador)
-if bar_index > 30 and pos_state == 0 and not na(work_dist)
+// Lógica de Entrada
+if bar_index > 50 and pos_state == 0
     if regime == 0 // Bull
         pos_state := 1
         trail_sl := low - work_dist
@@ -108,24 +103,18 @@ bool exit_long  = false
 bool exit_short = false
 
 if pos_state == 1 // Long
-    // Aperta o stop dinamicamente: Regime 2/3 (Compressão/Exaustão) reduz a distância (stop mais curto)
-    float tightening = (regime == 3 or regime == 2) ? 0.7 : 1.0
+    float tightening = (regime == 3 or regime == 2) ? 0.75 : 1.0
     float current_sl = low - (work_dist * tightening)
-
-    // Garantimos que o stop só suba (Trailing) - Proteção contra NA
     if not na(current_sl)
         trail_sl := na(trail_sl) ? current_sl : math.max(trail_sl, current_sl)
 
-    // Saída por Preço ou Inversão de Regime (Markov Bearish)
     if (not na(trail_sl) and close < trail_sl) or regime == 1
         exit_long := true
         pos_state := 0
         trail_sl := na
 else if pos_state == -1 // Short
-    float tightening = (regime == 3 or regime == 2) ? 0.7 : 1.0
+    float tightening = (regime == 3 or regime == 2) ? 0.75 : 1.0
     float current_sl = high + (work_dist * tightening)
-
-    // Garantimos que o stop só desça (Trailing) - Proteção contra NA
     if not na(current_sl)
         trail_sl := na(trail_sl) ? current_sl : math.min(trail_sl, current_sl)
 
@@ -134,36 +123,30 @@ else if pos_state == -1 // Short
         pos_state := 0
         trail_sl := na
 
-// Plotagem da Inércia (Inertial Trail SL)
+// --- 4. PLOTAGEM E HUD ---
 plot(trail_sl, "Inertial Trail SL", color=regime_col, linewidth=2, style=plot.style_linebr, display=display.all - display.status_line)
-
-// Plotagem do Regime nos Candles
 barcolor(show_barcolor ? color.new(regime_col, 50) : na)
 
-// --- 3.1 SINAIS DE EXECUÇÃO (IGNITION & FORCE BREAK) ---
+// Sinais de Execução
 bool enter_long  = pos_state == 1 and pos_state[1] == 0
 bool enter_short = pos_state == -1 and pos_state[1] == 0
 
-// Ignição (Entrada)
 plotshape(enter_long, "IGNITION LONG", shape.circle, location.belowbar, color.green, size=size.small, text="⚡", textcolor=color.white, display=display.all - display.status_line)
 plotshape(enter_short, "IGNITION SHORT", shape.circle, location.abovebar, color.red, size=size.small, text="🔥", textcolor=color.white, display=display.all - display.status_line)
 
-// Convicção (Hurst)
 plotshape(enter_long and h_val > 0.55, "HIGH CONVICTION LONG", shape.labelup, location.belowbar, color.new(color.green, 100), text="🚀", textcolor=color.green, size=size.tiny, display=display.all - display.status_line)
 plotshape(enter_short and h_val > 0.55, "HIGH CONVICTION SHORT", shape.labeldown, location.abovebar, color.new(color.red, 100), text="🚀", textcolor=color.red, size=size.tiny, display=display.all - display.status_line)
 
-// Quebra de Força (Saída)
 plotshape(exit_long, "EXIT LONG", shape.labeldown, location.abovebar, color.new(color.black, 40), text="⭕", textcolor=color.red, size=size.small, display=display.all - display.status_line)
 plotshape(exit_short, "EXIT SHORT", shape.labelup, location.belowbar, color.new(color.black, 40), text="⭕", textcolor=color.green, size=size.small, display=display.all - display.status_line)
 
-// --- 4. TABELA HUD ---
+// Tabela HUD
 var table hud = table.new(position.top_right, 3, 6, bgcolor=color.new(color.black, 70), border_width=1, border_color=color.gray)
 
 if barstate.islast
     string regime_str = regime == 0 ? "BULLISH" : regime == 1 ? "BEARISH" : regime == 2 ? "COMPRESSION" : "EXHAUSTION"
     string system_str = pos_state == 1 ? "LONG" : pos_state == -1 ? "SHORT" : "WAITING"
 
-    // Cabeçalho unificado com Ticker e Perfil
     table.merge_cells(hud, 0, 0, 2, 0)
     table.cell(hud, 0, 0, syminfo.ticker + " | " + profile_label + " | " + system_str + " | " + regime_str + " | H: " + str.tostring(h_val, "#.##") + " (" + h_state + ")", text_color=color.white, text_size=size.small)
 
@@ -187,7 +170,7 @@ if barstate.islast
     table.cell(hud, 1, 5, str.tostring(p_exh_i * 100, "#.0") + "%", text_color=color.white, text_size=size.small)
     table.cell(hud, 2, 5, str.tostring(p_exh * 100, "#.0") + "%", text_color=color.white, text_size=size.small)
 
-// --- 6. ALERTAS OPERACIONAIS ---
-alertcondition(enter_long, "Ignição de Compra (BULL)", "Motor BULL ligado. Considere entrada de compra.")
-alertcondition(enter_short, "Ignição de Venda (BEAR)", "Motor BEAR ligado. Considere entrada de venda.")
-alertcondition(exit_long or exit_short, "Quebra de Força (EXIT)", "A energia do movimento acabou. Considere fechar a posição.")
+// Alertas
+alertcondition(enter_long, "MPE: Ignição Compra", "Motor BULL ligado.")
+alertcondition(enter_short, "MPE: Ignição Venda", "Motor BEAR ligado.")
+alertcondition(exit_long or exit_short, "MPE: Quebra de Força", "Sinal de saída gerado.")
