@@ -11,6 +11,7 @@ enum AssetProfile
     INDICES
 
 AssetProfile profile = input.enum(AssetProfile.CRYPTO, "Perfil do Ativo", tooltip="Ajusta a sensibilidade da inércia com base na 'viscosidade' do mercado.")
+bool show_barcolor  = input.bool(true, "Colorir Candles por Regime", tooltip="Pinta os candles com a cor do Regime de Markov dominante.")
 
 float markov_decay = switch profile
     AssetProfile.CRYPTO  => 0.85
@@ -111,10 +112,9 @@ else if pos_state == -1 // Short
 
 // Plotagem da Inércia (Inertial Trail / Stop Loss)
 plot(trail_sl, "Inertial Trail SL", color=regime_col, linewidth=2, style=plot.style_linebr)
-plot(close, "Inertial Regime Line", color=regime_col, linewidth=3, style=plot.style_line)
 
 // Coloração dos Candles por Estado de Markov (Visão Direta do Regime)
-barcolor(color.new(regime_col, 50))
+barcolor(show_barcolor ? color.new(regime_col, 50) : na)
 
 // --- 3.1 SINAIS DE EXECUÇÃO (IGNITION & FORCE BREAK) ---
 bool enter_long  = pos_state == 1 and pos_state[1] == 0
@@ -145,7 +145,7 @@ if barstate.islast
 
     // Cabeçalho de Status
     table.merge_cells(hud, 0, 0, 2, 0)
-    table.cell(hud, 0, 0, "SYSTEM: " + system_str + " | REGIME: " + regime_str + " | HURST: " + str.tostring(h_val, "#.##"), text_color=color.white, text_size=size.small)
+    table.cell(hud, 0, 0, "SYSTEM: " + system_str + " | REGIME: " + regime_str + " | H: " + str.tostring(h_val, "#.##") + " (" + h_state + ")", text_color=color.white, text_size=size.small)
 
     // Colunas da Tabela de Forças
     table.cell(hud, 0, 1, "FORÇA", text_color=color.gray, text_size=size.small)
