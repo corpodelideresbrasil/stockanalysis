@@ -2,57 +2,127 @@
 // © raulfernandoferreira
 
 //@version=6
-indicator("MPE Vector NOW - Full Trail & HUD", shorttitle="MPE Full", overlay=true)
+indicator("MPE Vector NOW - V11.4", shorttitle="MPE V11.4", overlay=true, max_bars_back=5000)
+
+// --- 0. CONFIGURAÇÕES ---
+int markov_len = input.int(20, "Sensibilidade da Inércia", minval=5, tooltip="Comprimento da suavização das probabilidades (Markov).")
+float sl_mult  = input.float(1.5, "Multiplicador do Stop (ATR)", minval=0.5, step=0.1, tooltip="Ajusta a distância do trailing stop.")
+
+// --- 0.1 MÉTRICA DE PERSISTÊNCIA (HURST) ---
+get_hurst(len) =>
+    float log_len = math.log(len)
+    float r = ta.highest(high, len) - ta.lowest(low, len)
+    float s = ta.stdev(close, len)
+    float h = (not na(s) and s > 0 and not na(r) and r > 0) ? math.log(r / s) / log_len : 0.5
+    nz(h, 0.5)
+
+float h_val = ta.ema(get_hurst(20), 8)
+string h_state = h_val > 0.52 ? "Trending" : h_val < 0.48 ? "Mean-Rev" : "Random"
 
 // --- 1. MÓDULO DE FÍSICA ---
 float body_work = math.abs(close - open)
-float f_bull    = close > open ? body_work : 0.0
-float f_bear    = close < open ? body_work : 0.0
-float f_comp    = math.max(0.0, (nz(high[1] - low[1], high - low) - (high - low)))
-float f_exh     = math.max(high - math.max(open, close), math.min(open, close) - low) > (body_work * 1.2) ? math.max(high - math.max(open, close), math.min(open, close) - low) : 0.0
+float f_bull_i  = close > open ? body_work : 0.0
+float f_bear_i  = close < open ? body_work : 0.0
+float f_comp_i  = math.max(0.0, (nz(high[1] - low[1], high - low) - (high - low)))
+float wicks     = (high - math.max(open, close)) + (math.min(open, close) - low)
+float f_exh_i   = wicks > (body_work * 1.5) ? wicks : 0.0
 
-float total = f_bull + f_bear + f_comp + f_exh
-float p_bull_i = f_bull / (total == 0 ? 1 : total)
-float p_bear_i = f_bear / (total == 0 ? 1 : total)
-float p_comp_i = f_comp / (total == 0 ? 1 : total)
-float p_exh_i  = f_exh  / (total == 0 ? 1 : total)
+float total_i = f_bull_i + f_bear_i + f_comp_i + f_exh_i
+float p_bull_i = f_bull_i / (total_i <= 0 ? 1 : total_i)
+float p_bear_i = f_bear_i / (total_i <= 0 ? 1 : total_i)
+float p_comp_i = f_comp_i / (total_i <= 0 ? 1 : total_i)
+float p_exh_i  = f_exh_i  / (total_i <= 0 ? 1 : total_i)
 
-// --- 2. CADEIA DE MARKOV (INÉRCIA) ---
-var float p_bull = 0.25, var float p_bear = 0.25, var float p_comp = 0.25, var float p_exh = 0.25
-p_bull := (p_bull * 0.75) + (p_bull_i * 0.25)
-p_bear := (p_bear * 0.75) + (p_bear_i * 0.25)
-p_comp := (p_comp * 0.75) + (p_comp_i * 0.25)
-p_exh  := (p_exh * 0.75)  + (p_exh_i * 0.25)
+// --- 2. CADEIA DE MARKOV (EMA BASED) ---
+float p_bull = ta.ema(p_bull_i, markov_len)
+float p_bear = ta.ema(p_bear_i, markov_len)
+float p_comp = ta.ema(p_comp_i, markov_len)
+float p_exh  = ta.ema(p_exh_i,  markov_len)
 
-// --- 3. INERTIAL TRAIL (REGIME VISUAL) ---
+float _sum = p_bull + p_bear + p_comp + p_exh
+p_bull := nz(p_bull / (_sum <= 0 ? 1 : _sum), 0.25)
+p_bear := nz(p_bear / (_sum <= 0 ? 1 : _sum), 0.25)
+p_comp := nz(p_comp / (_sum <= 0 ? 1 : _sum), 0.25)
+p_exh  := nz(p_exh  / (_sum <= 0 ? 1 : _sum), 0.25)
+
+// --- 3. REGIME & GESTÃO DE POSIÇÃO ---
 float max_p = math.max(p_bull, p_bear, p_comp, p_exh)
 int regime = max_p == p_bull ? 0 : max_p == p_bear ? 1 : max_p == p_comp ? 2 : 3
 color regime_col = regime == 0 ? color.green : regime == 1 ? color.red : regime == 2 ? color.blue : color.orange
 
-// Plotagem da Inércia (Inertial Trail)
-plot(close, "Inertial Trail", color=regime_col, linewidth=3, style=plot.style_line)
 barcolor(color.new(regime_col, 50))
 
-// --- 4. TABELA HUD ---
-var table hud = table.new(position.top_right, 3, 5, bgcolor=color.new(color.black, 70), border_width=1, border_color=color.gray)
+// Trailing Stop Loss Logic
+var int pos_state = 0 // 0: None, 1: Long, -1: Short
+var float trail_sl = na
+float atr = ta.atr(14)
+
+bool enter_long  = regime == 0 and pos_state != 1
+bool enter_short = regime == 1 and pos_state != -1
+bool exit_trade  = (regime == 2 or regime == 3) and pos_state != 0
+
+// Reset/Transition Logic
+if enter_long
+    pos_state := 1
+    trail_sl := low - (atr * sl_mult)
+else if enter_short
+    pos_state := -1
+    trail_sl := high + (atr * sl_mult)
+else if exit_trade
+    pos_state := 0
+    trail_sl := na
+
+// Ratcheting the SL
+if pos_state == 1
+    float current_sl = low - (atr * sl_mult)
+    trail_sl := math.max(nz(trail_sl, 0), current_sl)
+    if close < trail_sl
+        pos_state := 0
+        trail_sl := na
+else if pos_state == -1
+    float current_sl = high + (atr * sl_mult)
+    trail_sl := math.min(nz(trail_sl, 1e10), current_sl)
+    if close > trail_sl
+        pos_state := 0
+        trail_sl := na
+
+// Plot the Trailing Stop Loss (Inertial Line)
+plot(trail_sl, "Inertial Line SL", color=regime_col, linewidth=2, style=plot.style_linebr)
+
+// Signals (Minimalist)
+plotshape(enter_long, "Ignition Long", shape.circle, location.belowbar, color.green, size=size.small, text="⚡", textcolor=color.white)
+plotshape(enter_short, "Ignition Short", shape.circle, location.abovebar, color.red, size=size.small, text="🔥", textcolor=color.white)
+plotshape(exit_trade and not (enter_long or enter_short), "Break", shape.labeldown, location.abovebar, color.new(color.gray, 50), size=size.tiny, text="⭕", textcolor=color.white)
+
+// --- 4. HUD TABLE ---
+var table hud = table.new(position.top_right, 3, 6, bgcolor=color.new(color.black, 70), border_width=1, border_color=color.gray)
 
 if barstate.islast
-    table.cell(hud, 0, 0, "Força", text_color=color.white)
-    table.cell(hud, 1, 0, "Agora", text_color=color.white)
-    table.cell(hud, 2, 0, "Markov", text_color=color.white)
+    string h_icon = h_val > 0.52 ? "🚀" : h_val < 0.48 ? "⚠️" : "⚖️"
+    table.merge_cells(hud, 0, 0, 2, 0)
+    table.cell(hud, 0, 0, h_icon + " " + syminfo.ticker + " V11.4 | H: " + str.tostring(h_val, "#.##") + " (" + h_state + ")", text_color=color.white, text_size=size.small)
 
-    table.cell(hud, 0, 1, "Bull", text_color=color.green)
-    table.cell(hud, 1, 1, str.tostring(p_bull_i * 100, "#.0") + "%", text_color=color.white)
-    table.cell(hud, 2, 1, str.tostring(p_bull * 100, "#.0") + "%", text_color=color.white)
+    table.cell(hud, 0, 1, "FORÇA", text_color=color.gray, text_size=size.small)
+    table.cell(hud, 1, 1, "AGORA", text_color=color.gray, text_size=size.small)
+    table.cell(hud, 2, 1, "MARKOV", text_color=color.gray, text_size=size.small)
 
-    table.cell(hud, 0, 2, "Bear", text_color=color.red)
-    table.cell(hud, 1, 2, str.tostring(p_bear_i * 100, "#.0") + "%", text_color=color.white)
-    table.cell(hud, 2, 2, str.tostring(p_bear * 100, "#.0") + "%", text_color=color.white)
+    table.cell(hud, 0, 2, "BULL", text_color=color.green, text_size=size.small)
+    table.cell(hud, 1, 2, str.tostring(p_bull_i * 100, "#.0") + "%", text_color=color.white, text_size=size.small)
+    table.cell(hud, 2, 2, str.tostring(p_bull * 100, "#.0") + "%", text_color=color.white, text_size=size.small)
 
-    table.cell(hud, 0, 3, "Comp", text_color=color.blue)
-    table.cell(hud, 1, 3, str.tostring(p_comp_i * 100, "#.0") + "%", text_color=color.white)
-    table.cell(hud, 2, 3, str.tostring(p_comp * 100, "#.0") + "%", text_color=color.white)
+    table.cell(hud, 0, 3, "BEAR", text_color=color.red, text_size=size.small)
+    table.cell(hud, 1, 3, str.tostring(p_bear_i * 100, "#.0") + "%", text_color=color.white, text_size=size.small)
+    table.cell(hud, 2, 3, str.tostring(p_bear * 100, "#.0") + "%", text_color=color.white, text_size=size.small)
 
-    table.cell(hud, 0, 4, "Exh", text_color=color.orange)
-    table.cell(hud, 1, 4, str.tostring(p_exh_i * 100, "#.0") + "%", text_color=color.white)
-    table.cell(hud, 2, 4, str.tostring(p_exh * 100, "#.0") + "%", text_color=color.white)
+    table.cell(hud, 0, 4, "COMP", text_color=color.blue, text_size=size.small)
+    table.cell(hud, 1, 4, str.tostring(p_comp_i * 100, "#.0") + "%", text_color=color.white, text_size=size.small)
+    table.cell(hud, 2, 4, str.tostring(p_comp * 100, "#.0") + "%", text_color=color.white, text_size=size.small)
+
+    table.cell(hud, 0, 5, "EXH", text_color=color.orange, text_size=size.small)
+    table.cell(hud, 1, 5, str.tostring(p_exh_i * 100, "#.0") + "%", text_color=color.white, text_size=size.small)
+    table.cell(hud, 2, 5, str.tostring(p_exh * 100, "#.0") + "%", text_color=color.white, text_size=size.small)
+
+// Alerts
+alertcondition(enter_long, "MPE: Ignition LONG", "Bull mode ON")
+alertcondition(enter_short, "MPE: Ignition SHORT", "Bear mode ON")
+alertcondition(exit_trade, "MPE: Break", "Exit signal")
