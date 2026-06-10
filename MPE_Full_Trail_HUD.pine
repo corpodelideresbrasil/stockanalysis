@@ -147,8 +147,10 @@ var table hud = table.new(position.top_right, 4, 1, bgcolor=color.new(color.blac
 
 if barstate.islast
     string regime_str = regime == 0 ? "BULLISH" : regime == 1 ? "BEARISH" : regime == 2 ? "COMPRESSION" : "EXHAUSTION"
+    string system_str = pos_state == 1 ? "LONG" : pos_state == -1 ? "SHORT" : "WAITING"
+    color system_col = pos_state == 0 ? color.gray : color.lime
 
-    table.cell(hud, 0, 0, "SYSTEM: ACTIVE", text_color=color.lime, text_size=size.small)
+    table.cell(hud, 0, 0, "SYSTEM: " + system_str, text_color=system_col, text_size=size.small)
     table.cell(hud, 1, 0, "REGIME: " + regime_str, text_color=regime_col, text_size=size.small)
     table.cell(hud, 2, 0, "HURST: " + str.tostring(h_val, "#.##"), text_color=h_color, text_size=size.small)
     table.cell(hud, 3, 0, "STATE: " + h_state, text_color=h_color, text_size=size.small)
