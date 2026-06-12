@@ -1,0 +1,109 @@
+from data.data_loader import DataLoader
+from indicators.indicators import Indicators
+from strategies.strategy_router import StrategyRouter
+from engines.risk_engine import RiskEngine
+from engines.position_engine import PositionEngine
+from engines.trailing_engine import TrailingEngine
+from config.symbols import SYMBOLS
+from config.config import TIMEFRAME_MACRO, TIMEFRAME_TACTICAL
+
+class MarketScanner:
+
+    def __init__(self):
+        self.pos_engine = PositionEngine()
+
+    def run(self):
+        results = []
+        all_regimes = {} # Ticker -> Regime
+        open_positions = self.pos_engine.get_open_positions()
+
+        for symbol in SYMBOLS:
+            try:
+                print(f"Analisando {symbol}...", flush=True)
+
+                df_daily = DataLoader.get_ohlcv(symbol, TIMEFRAME_MACRO)
+                df_4h = DataLoader.get_ohlcv(symbol, TIMEFRAME_TACTICAL)
+
+                if df_daily is None or df_4h is None:
+                    continue
+
+                df_daily = Indicators.apply_all(df_daily)
+                df_4h = Indicators.apply_all(df_4h)
+
+                # Salva o regime de TODOS os ativos analisados para o Health Check
+                regime = StrategyRouter.get_market_regime(df_daily)
+                all_regimes[symbol] = regime
+
+                if symbol in open_positions:
+                    pos = open_positions[symbol]
+
+                    # PROTEÇÃO: NUNCA altera alavancagem de posição aberta (HOLD)
+                    if not pos.get('margin_used') or pos.get('margin_used') == 0:
+                        # Recupera parâmetros ideais para auto-correção baseada no risco atual
+                        params = RiskEngine.get_risk_parameters({'entry': pos['entry'], 'stop': pos['stop']})
+                        lev = pos.get('leverage') or params['leverage']
+                        notional = pos['size'] * pos['entry']
+                        pos.update({
+                            "margin_used": notional / lev,
+                            "notional": notional,
+                            "leverage": lev
+                        })
+                        self.pos_engine.update_position(symbol, pos)
+
+                    new_stop = TrailingEngine.calculate_new_stop(symbol, pos, df_4h)
+                    if new_stop:
+                        self.pos_engine.update_position(symbol, {"stop": new_stop})
+                        pos['stop'] = new_stop
+
+                    action = StrategyRouter.evaluate_position(pos, df_daily, df_4h)
+                    last_price = df_4h.iloc[-1]['close']
+
+                    # --- Identificação de Recomendações Automáticas (TP/SL/Exit) ---
+                    direction = pos['direction']
+                    tp1, tp2 = pos.get('tp1'), pos.get('tp2')
+
+                    # Stop Loss Hit?
+                    sl_hit = (direction == 'LONG' and last_price <= pos['stop']) or (direction == 'SHORT' and last_price >= pos['stop'])
+                    if sl_hit:
+                        action = "SUGGEST_SL"
+
+                    # TP1 Hit?
+                    elif not pos.get('tp1_hit') and tp1:
+                        if (direction == 'LONG' and last_price >= tp1) or (direction == 'SHORT' and last_price <= tp1):
+                            action = "SUGGEST_TP1"
+
+                    # TP2 Hit?
+                    elif pos.get('tp1_hit') and not pos.get('tp2_hit') and tp2:
+                        if (direction == 'LONG' and last_price >= tp2) or (direction == 'SHORT' and last_price <= tp2):
+                            action = "SUGGEST_TP2"
+
+                    # Tactical Exit (RSI)?
+                    elif action in ["EXIT_PROFIT", "EXIT_LOSS"]:
+                        action = "SUGGEST_EXIT"
+
+                    results.append({
+                        "symbol": symbol, "direction": pos["direction"], "action": action,
+                        "entry": pos["entry"], "stop": pos["stop"], "size": pos["size"],
+                        "margin": pos.get("margin_used", 0), "leverage": pos.get("leverage", 1),
+                        "score": StrategyRouter.calculate_score(df_daily, df_4h),
+                        "regime": StrategyRouter.get_market_regime(df_daily),
+                        "last_price": last_price,
+                        "tp1_hit": pos.get('tp1_hit'),
+                        "tp2_hit": pos.get('tp2_hit')
+                    })
+                    continue
+
+                setup = StrategyRouter.route(df_daily, df_4h)
+                if setup:
+                    setup = RiskEngine.get_risk_parameters(setup)
+                    results.append({
+                        "symbol": symbol, "direction": setup["direction"], "action": "ENTER",
+                        "entry": setup["entry"], "stop": setup["stop"], "size": setup["position_size"],
+                        "margin": setup.get("margin_required", 0), "leverage": setup.get("leverage", 1),
+                        "score": StrategyRouter.calculate_score(df_daily, df_4h),
+                        "regime": setup["regime"]
+                    })
+            except Exception as e:
+                print(f"Erro em {symbol}: {e}")
+
+        return results, self.pos_engine.get_open_positions(), all_regimes

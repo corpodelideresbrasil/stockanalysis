@@ -1,0 +1,89 @@
+{
+    "__GLOBAL_STATS__": {
+        "total_realized_pnl": 0.0
+    },
+    "ADA/USDT": {
+        "status": "OPEN",
+        "direction": "SHORT",
+        "entry": 0.2397,
+        "stop": 0.2443,
+        "size": 408.0,
+        "margin_used": 12.25,
+        "notional": 97.79,
+        "leverage": 8,
+        "tp1_hit": false,
+        "tp2_hit": false,
+        "realized_pnl": 0.0,
+        "opened_at": "sync_2024_01_01"
+    },
+    "DOGE/USDT": {
+        "status": "OPEN",
+        "direction": "LONG",
+        "entry": 0.09804,
+        "stop": 0.0934,
+        "size": 1142.0,
+        "margin_used": 9.33,
+        "notional": 111.96,
+        "leverage": 12,
+        "tp1_hit": false,
+        "tp2_hit": false,
+        "realized_pnl": 0.0,
+        "opened_at": "sync_2024_01_01"
+    },
+    "ETH/USDT": {
+        "status": "OPEN",
+        "direction": "SHORT",
+        "entry": 2121.04,
+        "stop": 2093.55,
+        "size": 0.032,
+        "margin_used": 6.8,
+        "notional": 67.87,
+        "leverage": 10,
+        "tp1_hit": false,
+        "tp2_hit": false,
+        "realized_pnl": 0.0,
+        "opened_at": "sync_2024_01_01"
+    },
+    "LTC/USDT": {
+        "status": "OPEN",
+        "direction": "SHORT",
+        "entry": 53.48,
+        "stop": 53.04,
+        "size": 1.338,
+        "margin_used": 7.0,
+        "notional": 71.55,
+        "leverage": 10,
+        "tp1_hit": false,
+        "tp2_hit": false,
+        "realized_pnl": 0.0,
+        "opened_at": "sync_2024_01_01"
+    },
+    "ONDO/USDT": {
+        "status": "OPEN",
+        "direction": "LONG",
+        "entry": 0.3574,
+        "stop": 0.3161,
+        "size": 128.7,
+        "margin_used": 6.57,
+        "notional": 45.99,
+        "leverage": 7,
+        "tp1_hit": false,
+        "tp2_hit": false,
+        "realized_pnl": 0.0,
+        "opened_at": "sync_2024_01_01"
+    },
+    "SUSHI/USDT": {
+        "status": "OPEN",
+        "direction": "SHORT",
+        "entry": 0.2045,
+        "stop": 0.2068,
+        "size": 698.0,
+        "margin_used": 8.87,
+        "notional": 142.74,
+        "leverage": 8,
+        "tp1_hit": false,
+        "tp2_hit": false,
+        "realized_pnl": 0.0,
+        "opened_at": "sync_2024_01_01"
+    }
+}
